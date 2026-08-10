@@ -1,1 +1,353 @@
 @import "tailwindcss";
+
+/* ============================================================================
+   Void Workflow — Design System tokens (Phase 2 spec, Phase 3 implements)
+   Dark-first. color-scheme: dark. Light mode is a stretch goal (§13.4).
+   shadcn-compatible: background/foreground/primary/... aliases preserved.
+   ========================================================================== */
+
+:root {
+  color-scheme: dark;
+
+  /* --- Surface ---------------------------------------------------------- */
+  --surface-canvas:       #0d0f13;  /* canvas bg, deepest surface            */
+  --surface-canvas-grid:  #1f232b;  /* React Flow Background dots            */
+  --surface-sidebar:      #14161b;  /* rail/library/inspector/toolbar        */
+  --surface-panel:        #1a1d23;  /* dock/sections/inputs/node cards       */
+  --surface-elevated:     #22262e;  /* popover/menu/selected/toast           */
+  --surface-hover:        #2a2f38;  /* hover/active row fill                 */
+  --surface-input:        #181b21;  /* form control bg (darker than panel)   */
+  --surface-overlay:      rgba(7, 8, 10, 0.6); /* modal scrim               */
+
+  /* --- Border ----------------------------------------------------------- */
+  --border-subtle:        #21252d;  /* zone separators (1px)                 */
+  --border-default:       #2e333d;  /* popover/menu/input borders            */
+  --border-focus:         #1d6fd0;  /* THE accent / focus / selection ring   */
+  --border-status:        #3a4049;  /* status badge outlines, progress track */
+
+  /* --- Text ------------------------------------------------------------- */
+  --text-primary:         #e7e9ec;  /* 13.88:1 vs panel — AAA                */
+  --text-secondary:       #aeb4be;  /* 8.10:1  vs panel — AAA                */
+  --text-muted:           #949aa6;  /* 5.97:1  vs panel — AA                 */
+  --text-disabled:        #6b7280;  /* decorative small text (§12)           */
+  --text-error:           #f0656a;  /* 5.45:1  vs panel — AA                 */
+  --text-accent:          #4a9eff;  /* accent-tinted text (links, run %)     */
+  --text-on-accent:       #ffffff;  /* on accent.fill (Run button label)     */
+  --text-on-status:       #ffffff;  /* in filled status badges               */
+
+  /* --- Status (color-SECONDARY; always pair with icon + label) ---------- */
+  --status-idle:          #6b7280;
+  --status-queued:        #b08ad3;
+  --status-running:       #1d6fd0;  /* accent hue — "live" color             */
+  --status-success:       #36c98a;
+  --status-warning:       #e8a317;
+  --status-error:         #f0656a;
+  --status-error-strong:  #d23b41;  /* darker fill for text-on-status error buttons/badges — 4.5:1+ */
+  --status-error-hover:   #b82f35;  /* hover on error fills must darken, never opacity-down */
+  --status-cancelled:     #787e8a;
+  --status-skipped:       #5a6271;
+
+  /* --- Accent (single hue) ---------------------------------------------- */
+  --accent:               #1d6fd0;
+  --accent-hover:         #2874d4;
+  --accent-subtle:        rgba(29, 111, 208, 0.18);
+
+  /* --- Ports (color-SECONDARY; shape + icon primary) -------------------- */
+  --port-text:            #94a3b8;
+  --port-number:          #38bdf8;
+  --port-boolean:         #fbbf24;
+  --port-json:            #a78bfa;
+  --port-file:            #a8a29e;
+  --port-media:           #fb923c;
+  --port-audio:           #2dd4bf;
+  --port-video:           #e879f9;
+  --port-artifact:        #22c55e;
+  --port-any:             #94a3b8;
+
+  /* --- Radius ------------------------------------------------------------ */
+  --radius-control:       4px;      /* controls: buttons, inputs, ports      */
+  --radius-panel:         6px;      /* panels, popovers, node cards          */
+  --radius-full:          9999px;   /* dots, circular port handles           */
+
+  /* --- Spacing (4/8/12/16/20/24 — plan §8) ------------------------------ */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+
+  /* --- Border width ----------------------------------------------------- */
+  --border-width:         1px;
+  --border-width-strong:  2px;   /* focus/selection ring (3px under contrast) */
+  --border-width-edge:    1.5px; /* canvas edges (spec §7.3)                  */
+
+  /* --- Shadow ----------------------------------------------------------- */
+  --shadow-popover:       0 8px 24px rgba(0, 0, 0, 0.45);
+  --shadow-modal:         0 12px 40px rgba(0, 0, 0, 0.5);
+  --shadow-node:          0 2px 8px  rgba(0, 0, 0, 0.35);
+
+  /* --- Motion (≤120ms default; reduced-motion zeroes — see below) ------- */
+  --motion-duration-fast: 80ms;
+  --motion-duration-base: 120ms;
+  --motion-easing:        cubic-bezier(0.2, 0, 0, 1);
+
+  /* --- Z-index ---------------------------------------------------------- */
+  --z-canvas:           0;
+  --z-node-selected:    5;
+  --z-panel:            10;
+  --z-toolbar:          20;
+  --z-popover:          30;
+  --z-toast:            40;
+  --z-modal:            50;
+
+  /* --- Font stacks ------------------------------------------------------ */
+  --font-sans-stack:
+    "Inter", "SF Pro Text", "Segoe UI", system-ui, -apple-system,
+    "Helvetica Neue", Arial, sans-serif;
+  --font-mono-stack:
+    "JetBrains Mono", "SF Mono", "Cascadia Code", "Consolas",
+    "Liberation Mono", monospace;
+
+  /* --- Focus ring composition (spec §1: 2px ring, offset 2px) ---------- */
+  --ring-width:  var(--border-width-strong);
+  --ring-offset: 2px;
+  --ring-color:  var(--border-focus);
+
+  /* --- Edge defaults (spec §7.3) --------------------------------------- */
+  --edge-stroke:               var(--border-default);
+  --edge-stroke-width:         var(--border-width-edge);
+  --edge-stroke-selected:      var(--accent);
+  --edge-stroke-selected-width: var(--border-width-strong);
+
+  /* --- shadcn aliases (so `npx shadcn add` lands on the same vars) -----
+     NOTE: the shadcn `--accent`/`--accent-foreground` slots are intentionally
+     omitted from the alias block. In the Phase 2 spec they mapped
+     `--accent` to `var(--accent-subtle)`, which (same-specificity, last-wins)
+     shadowed the semantic `--accent: #1d6fd0` above and silently broke every
+     `bg-accent` / `--primary` / `--edge-stroke-selected` reference — Run/Save
+     buttons would have rendered as a near-invisible translucent fill.
+     shadcn's `bg-accent` now resolves to the solid accent, and
+     `bg-accent-subtle` remains available for subtle surfaces.            */
+  --background:              var(--surface-sidebar);
+  --foreground:              var(--text-primary);
+  --card:                    var(--surface-panel);
+  --card-foreground:         var(--text-primary);
+  --popover:                 var(--surface-elevated);
+  --popover-foreground:      var(--text-primary);
+  --primary:                 var(--accent);
+  --primary-foreground:      var(--text-on-accent);
+  --secondary:               var(--surface-hover);
+  --secondary-foreground:    var(--text-primary);
+  --muted:                   var(--surface-panel);
+  --muted-foreground:        var(--text-secondary);
+  --destructive:             var(--status-error);
+  --destructive-foreground:  var(--text-on-status);
+  --border:                  var(--border-default);
+  --input:                   var(--surface-input);
+  --ring:                    var(--border-focus);
+  --radius:                  var(--radius-panel); /* shadcn base radius */
+}
+
+/* --- Global focus-visible ring (every interactive element inherits) ----- */
+:where(button, a, input, select, textarea, [role="tab"], [role="menuitem"],
+       [role="button"], [tabindex], [role="separator"]):focus-visible {
+  outline: var(--ring-width) solid var(--ring-color);
+  outline-offset: var(--ring-offset);
+  border-radius: inherit;
+}
+
+/* --- Selection ring (canvas nodes/edges) uses the same accent ----------- */
+::selection {
+  background: var(--accent-subtle);
+  color: var(--text-primary);
+}
+
+/* --- prefers-contrast: more (spec §1) ----------------------------------- */
+@media (prefers-contrast: more) {
+  :root {
+    --ring-width: 3px;   /* spec §1: focus rings widen to 3px              */
+  }
+}
+
+/* --- prefers-reduced-motion: reduce (spec §1) — 0ms hard contract ------ */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --motion-duration-fast: 0ms;
+    --motion-duration-base: 0ms;
+  }
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+  /* Run-payload edge dash MUST be stripped entirely under reduced-motion
+     (spec §9.2: reduced → no dash, just color). The global 0.01ms rule above
+     only freezes the animation; without this, strokeDasharray stays and the
+     edge renders a STATIC dashed line — still a dash, which is forbidden. */
+  .react-flow__edge.edge-run-payload .react-flow__edge-path {
+    animation: none !important;
+    stroke-dasharray: none !important;
+  }
+}
+
+/* ============================================================================
+   Canvas edge styling (spec §7.3, DS §9.2) — selected + run-payload edges.
+   App.css is imported globally (main.tsx) so it cascades over
+   @xyflow/react/dist/style.css (imported in WorkflowCanvas). !important wins
+   over the inline stroke RF sets via defaultEdgeOptions so the visual states
+   below are authoritative. Tokens by name only.
+   ========================================================================== */
+
+/* Default edge: already set inline via defaultEdgeOptions (var(--edge-stroke)
+   1.5px). No override needed. */
+
+/* Selected edge: accent 2px + accent marker (spec §7.3). React Flow adds the
+   `.selected` class to a selected edge wrapper. */
+.react-flow__edge.selected .react-flow__edge-path {
+  stroke: var(--edge-stroke-selected) !important;
+  stroke-width: var(--edge-stroke-selected-width) !important;
+}
+.react-flow__edge.selected .react-flow__edge-path + defs marker,
+.react-flow__edge.selected .react-flow__edge-path ~ defs marker path {
+  fill: var(--edge-stroke-selected) !important;
+}
+
+/* Run-payload edge: the ONLY run-related canvas decoration besides node
+   status (spec §7.3). status.running color + subtle 1s dash. The dash is the
+   sole permitted >120ms motion (DS §9.2). Applied only when the edge feeds a
+   running/queued node (set via `animated` + className in WorkflowCanvas). */
+.react-flow__edge.edge-run-payload .react-flow__edge-path {
+  stroke: var(--status-running) !important;
+  stroke-dasharray: 6 4;
+  animation: edge-dash 1s linear infinite;
+}
+@keyframes edge-dash {
+  to { stroke-dashoffset: -10; }
+}
+
+/* ============================================================================
+   Tailwind v4 @theme inline — maps :root vars to utility namespaces.
+   `inline` makes utilities reference the var(), so a future light-mode block
+   overriding :root vars retargets every utility automatically.
+   Generates: bg-, text-, border-, rounded-, spacing-, shadow- utilities, etc.
+   ========================================================================== */
+@theme inline {
+  /* Surface -> bg-surface-* */
+  --color-surface-canvas:       var(--surface-canvas);
+  --color-surface-canvas-grid:  var(--surface-canvas-grid);
+  --color-surface-sidebar:      var(--surface-sidebar);
+  --color-surface-panel:        var(--surface-panel);
+  --color-surface-elevated:     var(--surface-elevated);
+  --color-surface-hover:        var(--surface-hover);
+  --color-surface-input:        var(--surface-input);
+  --color-surface-overlay:      var(--surface-overlay);
+
+  /* Border -> border-border-* */
+  --color-border-default:       var(--border-default);
+  --color-border-subtle:        var(--border-subtle);
+  --color-border-focus:         var(--border-focus);
+  --color-border-status:        var(--border-status);
+
+  /* Text -> text-text-* */
+  --color-text-primary:         var(--text-primary);
+  --color-text-secondary:       var(--text-secondary);
+  --color-text-muted:           var(--text-muted);
+  --color-text-disabled:        var(--text-disabled);
+  --color-text-error:           var(--text-error);
+  --color-text-accent:          var(--text-accent);
+  --color-text-on-accent:       var(--text-on-accent);
+  --color-text-on-status:       var(--text-on-status);
+
+  /* Status -> bg-status-*, text-status-* */
+  --color-status-idle:          var(--status-idle);
+  --color-status-queued:        var(--status-queued);
+  --color-status-running:       var(--status-running);
+  --color-status-success:       var(--status-success);
+  --color-status-warning:       var(--status-warning);
+  --color-status-error:         var(--status-error);
+  --color-status-error-strong:  var(--status-error-strong);
+  --color-status-error-hover:   var(--status-error-hover);
+  --color-status-cancelled:     var(--status-cancelled);
+  --color-status-skipped:       var(--status-skipped);
+
+  /* Accent -> bg-accent, text-accent, border-accent */
+  --color-accent:               var(--accent);
+  --color-accent-hover:         var(--accent-hover);
+  --color-accent-subtle:        var(--accent-subtle);
+
+  /* Ports -> bg-port-*, text-port-*, border-port-* */
+  --color-port-text:            var(--port-text);
+  --color-port-number:          var(--port-number);
+  --color-port-boolean:         var(--port-boolean);
+  --color-port-json:            var(--port-json);
+  --color-port-file:            var(--port-file);
+  --color-port-media:           var(--port-media);
+  --color-port-audio:           var(--port-audio);
+  --color-port-video:           var(--port-video);
+  --color-port-artifact:        var(--port-artifact);
+  --color-port-any:             var(--port-any);
+
+  /* Radius -> rounded-control, rounded-panel, rounded-full */
+  --radius-control:             var(--radius-control);
+  --radius-panel:               var(--radius-panel);
+  --radius-full:                var(--radius-full);
+
+  /* Spacing -> p-1..p-6, gap-1..gap-6, m-1..m-6 */
+  --spacing-1: var(--space-1);
+  --spacing-2: var(--space-2);
+  --spacing-3: var(--space-3);
+  --spacing-4: var(--space-4);
+  --spacing-5: var(--space-5);
+  --spacing-6: var(--space-6);
+
+  /* Shadow -> shadow-popover, shadow-modal, shadow-node */
+  --shadow-popover:             var(--shadow-popover);
+  --shadow-modal:               var(--shadow-modal);
+  --shadow-node:                var(--shadow-node);
+
+  /* Motion -> duration-fast, duration-base, ease-standard */
+  --duration-fast:              var(--motion-duration-fast);
+  --duration-base:              var(--motion-duration-base);
+  --ease-standard:              var(--motion-easing);
+
+  /* Fonts -> font-sans, font-mono */
+  --font-sans:                  var(--font-sans-stack);
+  --font-mono:                  var(--font-mono-stack);
+
+  /* Breakpoint (single desktop-first addition; Tailwind defaults preserved) */
+  --breakpoint-xs: 480px;
+}
+
+/* --- Base layer --------------------------------------------------------- */
+@layer base {
+  html {
+    color-scheme: dark;
+    background: var(--surface-canvas);
+    color: var(--text-primary);
+    font-family: var(--font-sans-stack);
+    font-size: 13px;          /* root → 13px so rem-based sizes map to density */
+    line-height: 1.45;
+  }
+  body {
+    background: var(--surface-canvas);
+    color: var(--text-primary);
+    margin: 0;
+  }
+}
+
+/* --- Screen-reader-only helper (used by StatusAnnouncer / canvas h2) ---- */
+@layer utilities {
+  .sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+  }
+}
