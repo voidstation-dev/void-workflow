@@ -14,10 +14,10 @@ import {
   AlignVerticalSpaceAround,
   type LucideIcon,
 } from 'lucide-react';
-import { v4 as uuidv4 } from 'uuid';
 import { useWorkflowStore, type AppNodeData } from '@/store/workflowStore';
 import { useSplitter, splitterAria } from './useSplitter';
 import { useInlineConfirm } from './useInlineConfirm';
+import { useDeleteHelpers } from '@/hooks/useDeleteHelpers';
 import { PropertyRow } from '@/components/primitives/PropertyRow';
 import { InspectorSection } from '@/components/primitives/InspectorSection';
 import { InspectorTabs } from '@/components/primitives/InspectorTabs';
@@ -28,6 +28,7 @@ import {
 } from '@/components/primitives/NodeStatus';
 import { NODE_DEFINITION_MAP, type ConfigField } from '@/nodes/registry';
 import { getPortIcon } from '@/components/shell/icons';
+import { useArrange } from '@/hooks/useArrange';
 import { resolvePortType, isTypeCompatible } from '@/nodes/portCompat';
 import { EmptyState } from '@/components/primitives/EmptyState';
 import { cn } from '@/lib/utils';
@@ -83,10 +84,14 @@ const MODE_TITLE: Record<string, string> = {
 };
 
 export function Inspector() {
-  const collapsed = useWorkflowStore((s) => s.inspectorCollapsed);
-  const width = useWorkflowStore((s) => s.inspectorWidth);
-  const setWidth = useWorkflowStore((s) => s.setInspectorWidth);
-  const toggle = useWorkflowStore((s) => s.toggleInspector);
+  // Phase 5: unified right-column panel (spec §15). The Inspector shares one
+  // width + one collapsed flag with the Build panel — the shell gates
+  // collapsed-render, so `collapsed` here is always false when mounted.
+  const collapsed = useWorkflowStore((s) => s.rightPanelCollapsed);
+  const width = useWorkflowStore((s) => s.rightPanelWidth);
+  const setWidth = useWorkflowStore((s) => s.setRightPanelWidth);
+  const toggle = useWorkflowStore((s) => s.toggleRightPanel);
+  const clearSelection = useWorkflowStore((s) => s.clearSelection);
   const selectionMode = useWorkflowStore((s) => s.selectionMode);
   const selectedNodeId = useWorkflowStore((s) => s.selectedNodeId);
   const selectedEdgeId = useWorkflowStore((s) => s.selectedEdgeId);
@@ -95,12 +100,12 @@ export function Inspector() {
 
   const splitter = useSplitter({
     orientation: 'vertical',
-    min: 240,
-    max: 440,
+    min: 280,
+    max: 360,
     getValue: () => width,
     setValue: setWidth,
     toggleCollapse: toggle,
-    maximizeValue: 440,
+    maximizeValue: 360,
   });
 
   // Focus-to-h2 on selection change (spec §8.2 line 310). Lives in the shell so
@@ -133,8 +138,8 @@ export function Inspector() {
         {...splitterAria({
           orientation: 'vertical',
           value: width,
-          min: 240,
-          max: 440,
+          min: 280,
+          max: 360,
           controlsId: INSPECTOR_ID,
         })}
         onPointerDown={splitter.onPointerDown}
@@ -145,12 +150,27 @@ export function Inspector() {
         style={{ marginLeft: -2 }}
       />
 
-      <div className="flex h-8 shrink-0 items-center justify-between px-2">
+      {/* Phase 5 header: "← Back to Build" returns to the Build panel
+          (clearSelection → selectionMode 'none' → shell renders NodeLibrary),
+          followed by the mode title (Node / Connection / Multi-select), then the
+          collapse chevron. The Back button is the primary affordance for the
+          Build↔Inspector swap; Esc still clears selection globally. */}
+      <div className="flex h-8 shrink-0 items-center gap-1 px-2">
+        <button
+          type="button"
+          aria-label="Back to Build"
+          title="Back to Build (Esc)"
+          onClick={clearSelection}
+          className="flex items-center gap-0.5 rounded-control px-1 py-0.5 text-[12px] font-medium text-text-secondary hover:bg-surface-hover hover:text-text-primary"
+        >
+          <ChevronLeft size={14} aria-hidden="true" />
+          Build
+        </button>
         <h2
           id={INSPECTOR_HEADING_ID}
           ref={headerRef}
           tabIndex={-1}
-          className="text-[12px] font-semibold text-text-secondary outline-none"
+          className="min-w-0 flex-1 truncate text-[12px] font-semibold text-text-secondary outline-none"
         >
           {MODE_TITLE[selectionMode] ?? 'Workflow'}
         </h2>
@@ -166,101 +186,30 @@ export function Inspector() {
       </div>
 
       <div id={INSPECTOR_ID} className="min-h-0 flex-1 overflow-y-auto">
-        {selectionMode === 'none' ? (
-          <WorkflowInspector />
-        ) : selectionMode === 'node' && selectedNodeId ? (
+        {/*
+          Phase 5: the shell renders NodeLibrary (Build) when selectionMode ===
+          'none', so the Inspector is only ever mounted for node/edge/multi.
+          The 'none' branch is therefore unreachable; the WorkflowInspector
+          workflow-name editor is retired here (editing relocates to the
+          breadcrumb / Phase 9 Settings). A defensive EmptyState covers any
+          transient state where a selection vanished between render and mount.
+        */}
+        {selectionMode === 'node' && selectedNodeId ? (
           <NodeInspector key={selectedNodeId} nodeId={selectedNodeId} />
         ) : selectionMode === 'edge' && selectedEdgeId ? (
           <ConnectionInspector edgeId={selectedEdgeId} />
         ) : selectionMode === 'multi' && multiSelectIds.length > 1 ? (
           <MultiSelectInspector ids={multiSelectIds} />
         ) : (
-          <WorkflowInspector />
+          <EmptyState
+            title="Nothing selected"
+            body="Select a node or connection to edit it, or go back to Build."
+            action={{ label: 'Back to Build', onClick: clearSelection }}
+            live="off"
+          />
         )}
       </div>
     </aside>
-  );
-}
-
-/* ============================================================================
-   Local deletion helpers (§27-safe — mirror useWorkspaceShortcuts 184-191).
-   NO store action is added; useWorkspaceShortcuts is NOT modified.
-   ========================================================================== */
-function useDeleteHelpers() {
-  const setNodes = useWorkflowStore((s) => s.setNodes);
-  const setEdges = useWorkflowStore((s) => s.setEdges);
-  const clearSelection = useWorkflowStore((s) => s.clearSelection);
-  const markDirty = useWorkflowStore((s) => s.markDirty);
-  const setAnnouncement = useWorkflowStore((s) => s.setAnnouncement);
-
-  const deleteNodes = (ids: string[]) => {
-    const idSet = new Set(ids);
-    const { nodes, edges } = useWorkflowStore.getState();
-    setNodes(nodes.filter((n) => !idSet.has(n.id)));
-    setEdges(edges.filter((e) => !idSet.has(e.source) && !idSet.has(e.target)));
-    clearSelection();
-    markDirty();
-    setAnnouncement({
-      id: uuidv4(),
-      text: `Deleted ${ids.length} node${ids.length > 1 ? 's' : ''}.`,
-    });
-  };
-
-  const deleteEdge = (edgeId: string) => {
-    const { edges } = useWorkflowStore.getState();
-    setEdges(edges.filter((e) => e.id !== edgeId));
-    clearSelection();
-    markDirty();
-    setAnnouncement({ id: uuidv4(), text: 'Connection deleted.' });
-  };
-
-  return { deleteNodes, deleteEdge };
-}
-
-/* ============================================================================
-   Workflow Inspector (mode 'none') — NEVER empty (no dead panel).
-   ========================================================================== */
-function WorkflowInspector() {
-  const workflowName = useWorkflowStore((s) => s.workflowName);
-  const setWorkflowName = useWorkflowStore((s) => s.setWorkflowName);
-  const markDirty = useWorkflowStore((s) => s.markDirty);
-  const nodesCount = useWorkflowStore((s) => s.nodes.length);
-  const edgesCount = useWorkflowStore((s) => s.edges.length);
-
-  return (
-    <div className="flex flex-col gap-3 p-3">
-      <div className="flex flex-col gap-1">
-        <label htmlFor="workflow-name-input" className="text-[11px] text-text-muted">
-          Workflow name
-        </label>
-        <input
-          id="workflow-name-input"
-          type="text"
-          value={workflowName}
-          onChange={(e) => {
-            setWorkflowName(e.target.value);
-            markDirty();
-          }}
-          aria-label="Workflow name"
-          className="rounded-control border border-border-subtle bg-surface-input px-2 py-1 text-[13px] text-text-primary outline-none focus:border-border-focus"
-        />
-      </div>
-
-      <div className="flex flex-col gap-1 text-[11px] text-text-muted">
-        <div className="flex justify-between">
-          <span>Nodes</span>
-          <span className="text-text-secondary">{nodesCount}</span>
-        </div>
-        <div className="flex justify-between">
-          <span>Connections</span>
-          <span className="text-text-secondary">{edgesCount}</span>
-        </div>
-      </div>
-
-      <p className="border-t border-border-subtle pt-2 text-[12px] text-text-muted">
-        Select a node or connection to edit it.
-      </p>
-    </div>
   );
 }
 
@@ -321,14 +270,27 @@ function NodeInspector({ nodeId }: { nodeId: string }) {
       );
     });
 
+  // Phase 5: split config fields into Basic (default) and Advanced
+  // (field.advanced === true). Advanced renders in a collapsible
+  // InspectorSection collapsed by default (spec §8.2) so the Basic section
+  // stays low-noise. No node currently declares advanced fields, so the
+  // Advanced section only appears when one does.
+  const basicFields = def.configSchema.filter((f) => !f.advanced);
+  const advancedFields = def.configSchema.filter((f) => f.advanced);
+
   const configPanel = (
     <>
       {isActive && (
         <p className="text-[11px] text-text-muted">Editing disabled while running.</p>
       )}
       <InspectorSection title={tabs.length > 1 ? activeTab : tabs[0]}>
-        <div className="flex flex-col gap-1">{renderConfigFields(def.configSchema)}</div>
+        <div className="flex flex-col gap-1">{renderConfigFields(basicFields)}</div>
       </InspectorSection>
+      {advancedFields.length > 0 && (
+        <InspectorSection title="Advanced" defaultCollapsed>
+          <div className="flex flex-col gap-1">{renderConfigFields(advancedFields)}</div>
+        </InspectorSection>
+      )}
     </>
   );
 
@@ -549,55 +511,9 @@ function ConnectionInspector({ edgeId }: { edgeId: string }) {
    per-node config (spec §8.1 line 281).
    ========================================================================== */
 function MultiSelectInspector({ ids }: { ids: string[] }) {
-  const setNodes = useWorkflowStore((s) => s.setNodes);
-  const markDirty = useWorkflowStore((s) => s.markDirty);
+  const { align, distribute } = useArrange(ids);
   const { deleteNodes } = useDeleteHelpers();
   const confirm = useInlineConfirm();
-
-  const getSelected = () => {
-    const { nodes } = useWorkflowStore.getState();
-    return nodes.filter((n) => ids.includes(n.id));
-  };
-
-  // Align: set every selected node's x or y to the min/max/mid of the selection
-  // bbox. Uses node.position (zoom/viewport-independent, not DOM rects).
-  const align = (axis: 'x' | 'y', mode: 'min' | 'max' | 'center') => {
-    const sel = getSelected();
-    if (sel.length < 2) return;
-    const vals = sel.map((n) => n.position[axis]);
-    const target =
-      mode === 'min'
-        ? Math.min(...vals)
-        : mode === 'max'
-          ? Math.max(...vals)
-          : vals.reduce((a, b) => a + b, 0) / vals.length;
-    const { nodes } = useWorkflowStore.getState();
-    const idSet = new Set(ids);
-    setNodes(
-      nodes.map((n) =>
-        idSet.has(n.id) ? { ...n, position: { ...n.position, [axis]: target } } : n,
-      ),
-    );
-    markDirty();
-  };
-
-  // Distribute: evenly space selected nodes between the extremes along an axis.
-  const distribute = (axis: 'x' | 'y') => {
-    const sel = getSelected().sort((a, b) => a.position[axis] - b.position[axis]);
-    if (sel.length < 3) return;
-    const min = sel[0].position[axis];
-    const max = sel[sel.length - 1].position[axis];
-    const step = (max - min) / (sel.length - 1);
-    const posById = new Map(sel.map((n, i) => [n.id, min + step * i]));
-    const { nodes } = useWorkflowStore.getState();
-    const idSet = new Set(ids);
-    setNodes(
-      nodes.map((n) =>
-        idSet.has(n.id) ? { ...n, position: { ...n.position, [axis]: posById.get(n.id)! } } : n,
-      ),
-    );
-    markDirty();
-  };
 
   const arrangeBtn = (icon: LucideIcon, label: string, onClick: () => void) => (
     <button

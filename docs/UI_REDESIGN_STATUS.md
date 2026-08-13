@@ -3,7 +3,7 @@
 > Tracks **UI redesign** phases only. Do not mix with MVP execution-engine
 > status (see [MVP1_STATUS.md](MVP1_STATUS.md)).
 
-Last Updated: 2026-08-10
+Last Updated: 2026-08-13
 
 ## Overall
 

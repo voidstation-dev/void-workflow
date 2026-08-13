@@ -14,16 +14,16 @@ import type { WorkflowController } from './useWorkflowController';
  */
 
 const LANDMARK_SELECTORS = [
-  '[role="banner"]',                 // TopToolbar
-  'nav[aria-label="App navigation"]',// AppRail
-  'aside[aria-label="Node library"]',// NodeLibrary (workflow screen only)
-  'main[role="application"]',        // Canvas (workflow screen only)
-  'aside[aria-label="Inspector"]',   // Inspector (workflow screen only)
-  // Phase 8 App Screens — rendered as <main data-screen="…">. Unmounted on the
+  '[role="banner"]',                          // WorkflowHeader
+  'nav[aria-label="Workspace sections"]',    // WorkflowTabs
+  'aside[aria-label="Node library"]',        // NodeLibrary (workflow screen only)
+  'main[role="application"]',                // Canvas (workflow screen only)
+  'aside[aria-label="Inspector"]',           // Inspector (workflow screen only)
+  // App Screens — rendered as <main data-screen="…">. Unmounted on the
   // workflow screen (querySelector returns null → safely skipped), so F6 lands
   // on the active screen when the canvas/library/inspector landmarks are gone.
   'main[data-screen]',
-  'footer[role="contentinfo"]',      // BottomDock
+  'footer[role="contentinfo"]',              // BottomDock
 ];
 
 function isTypingTarget(el: EventTarget | null): boolean {
@@ -115,8 +115,8 @@ export function useWorkspaceShortcuts(controller: WorkflowController): void {
         return;
       }
 
-      // Alt+1..4 — works everywhere (spec §4 App Rail). Phase 8 wires the three
-      // secondary screens for real; the prior "coming in Phase 8" toast is gone.
+      // Alt+1..4 — works everywhere (spec §3.B secondary tabs). Order matches the
+      // tab row: 1=Workflow, 2=Settings, 3=Runs, 4=Environment.
       if (e.altKey && !e.ctrlKey && !e.metaKey) {
         if (e.key === '1') {
           store.setActiveScreen('workflow');
@@ -124,17 +124,17 @@ export function useWorkspaceShortcuts(controller: WorkflowController): void {
           return;
         }
         if (e.key === '2') {
-          store.setActiveScreen('projects');
+          store.setActiveScreen('settings');
           e.preventDefault();
           return;
         }
         if (e.key === '3') {
-          store.setActiveScreen('history');
+          store.setActiveScreen('runs');
           e.preventDefault();
           return;
         }
         if (e.key === '4') {
-          store.setActiveScreen('settings');
+          store.setActiveScreen('environment');
           e.preventDefault();
           return;
         }
@@ -220,19 +220,18 @@ export function useWorkspaceShortcuts(controller: WorkflowController): void {
 
       // --- Cmd/Ctrl combos below ---
 
-      if (e.shiftKey && (e.key === 'b' || e.key === 'B')) {
-        e.preventDefault();
-        store.toggleAppRail();
-        return;
-      }
+      // Phase 5: unified right-column panel (spec §15). Both Ctrl/Cmd+B
+      // (Build) and Ctrl/Cmd+I (Inspector) toggle the same single right panel —
+      // its content is Build (no selection) or Inspector (selection), so one
+      // toggle collapses/expands the whole column regardless of content.
       if (!e.shiftKey && (e.key === 'b' || e.key === 'B')) {
         e.preventDefault();
-        store.toggleLibrary();
+        store.toggleRightPanel();
         return;
       }
       if (e.key === 'i' || e.key === 'I') {
         e.preventDefault();
-        store.toggleInspector();
+        store.toggleRightPanel();
         return;
       }
       if (e.key === 'j' || e.key === 'J') {
@@ -243,6 +242,21 @@ export function useWorkspaceShortcuts(controller: WorkflowController): void {
       if (e.key === 's' || e.key === 'S') {
         e.preventDefault();
         void controller.save();
+        return;
+      }
+      // Phase 6: client-side Undo/Redo graph-history (app-wide, spec §7.4).
+      // Ctrl/Cmd+Z = undo; Ctrl/Cmd+Shift+Z OR Ctrl/Cmd+Y = redo. Only undo/
+      // redo graph mutations — text editing in inputs is NOT captured (guarded
+      // above by isTypingTarget, which returns early before this branch).
+      if (e.key === 'z' || e.key === 'Z') {
+        e.preventDefault();
+        if (e.shiftKey) store.redo();
+        else store.undo();
+        return;
+      }
+      if (e.key === 'y' || e.key === 'Y') {
+        e.preventDefault();
+        store.redo();
         return;
       }
       if (e.key === 'Enter') {
@@ -269,30 +283,59 @@ export function useWorkspaceShortcuts(controller: WorkflowController): void {
       }
 
       // Ctrl/Cmd+D — duplicate selected node(s) (spec §7.4). Prevent the
-      // browser bookmark default.
+      // browser bookmark default. Delegates to the shared `duplicateNodes`
+      // store action so the keyboard shortcut and the floating-node toolbar
+      // can never produce divergent duplicates (composition-patterns: single
+      // owner of the clone logic).
       if (e.key === 'd' || e.key === 'D') {
-        const { selectedNodeId, multiSelectIds, nodes } = store;
+        const { selectedNodeId, multiSelectIds } = store;
         const ids = multiSelectIds.length > 0 ? multiSelectIds : (selectedNodeId ? [selectedNodeId] : []);
         if (ids.length === 0) return;
         e.preventDefault();
-        const clones: typeof nodes = [];
-        for (const id of ids) {
-          const n = nodes.find((x) => x.id === id);
-          if (!n) continue;
-          clones.push({
-            ...n,
-            id: crypto.randomUUID(),
-            position: { x: n.position.x + 24, y: n.position.y + 24 },
-            data: { ...n.data },
-            selected: false,
-          });
+        const cloneIds = store.duplicateNodes(ids);
+        if (cloneIds.length > 0) {
+          controller.announce(`Duplicated ${cloneIds.length} node${cloneIds.length > 1 ? 's' : ''}`);
         }
-        if (clones.length > 0) {
-          store.setNodes([...nodes, ...clones]);
-          store.setMultiSelect(clones.map((c) => c.id));
-          store.markDirty();
-          controller.announce(`Duplicated ${clones.length} node${clones.length > 1 ? 's' : ''}`);
+        return;
+      }
+
+      // Ctrl/Cmd+C — copy selected node(s) to the transient clipboard (spec §54).
+      // Pairs with Ctrl/Cmd+V paste below. Mirrors the context-menu Copy item
+      // (spec §53) — one clipboard, one behavior.
+      if (e.key === 'c' || e.key === 'C') {
+        const { selectedNodeId, multiSelectIds } = store;
+        const ids = multiSelectIds.length > 0 ? multiSelectIds : (selectedNodeId ? [selectedNodeId] : []);
+        if (ids.length === 0) return;
+        e.preventDefault();
+        store.copyNodes(ids);
+        return;
+      }
+
+      // Ctrl/Cmd+V — paste from the clipboard (spec §54). Place near the
+      // current selection's top-left (or a fixed canvas origin when nothing is
+      // selected). The context-menu Paste places exactly at the cursor via
+      // screenToFlowPosition; the keyboard path has no cursor, so it uses a
+      // deterministic anchor near the selection. Reuses addNode via the store
+      // action (§27 single path).
+      if (e.key === 'v' || e.key === 'V') {
+        if (store.clipboard.length === 0) return;
+        e.preventDefault();
+        // Anchor: the top-left-most selected node, else a fixed offset. Keeps
+        // the pasted group near where the user is looking.
+        let anchor = { x: 100, y: 100 };
+        if (store.selectedNodeId) {
+          const src = store.nodes.find((n) => n.id === store.selectedNodeId);
+          if (src) anchor = { x: src.position.x + 40, y: src.position.y + 40 };
+        } else if (store.multiSelectIds.length > 0) {
+          const sel = store.nodes.filter((n) => store.multiSelectIds.includes(n.id));
+          if (sel.length > 0) {
+            anchor = {
+              x: Math.min(...sel.map((n) => n.position.x)) + 40,
+              y: Math.min(...sel.map((n) => n.position.y)) + 40,
+            };
+          }
         }
+        store.pasteNodes(anchor);
         return;
       }
     };

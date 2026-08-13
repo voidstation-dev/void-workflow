@@ -1,4 +1,4 @@
-import { useMemo, useState, type KeyboardEvent } from 'react';
+import { useMemo, type KeyboardEvent } from 'react';
 import { v4 as uuidv4 } from 'uuid';
 import { ChevronDown, ChevronRight, Search, X } from 'lucide-react';
 import { useWorkflowStore } from '@/store/workflowStore';
@@ -9,67 +9,75 @@ import { NodeLibraryItem } from './NodeLibraryItem';
 import { cn } from '@/lib/utils';
 
 /**
- * NodeLibrary — Zone B (spec §6). Reads from the single source of truth registry
- * and renders a searchable, single-level category-grouped list.
+ * NodeLibrary (Build Panel) — right-side workspace element (spec §9). Reads from
+ * the single source of truth registry and renders a searchable, single-level
+ * category-grouped list. Width 280–320px, white panel, `border-l`, independently
+ * scrollable, no overlap over the canvas.
  *
- * Phase 4 delivers the full §6 spec:
- *   - Search input (32px, surface.panel, border.subtle). LOCAL component state
- *     (NOT uiSlice). Matches name/category/description/keywords. Clear button
- *     (aria-label="Clear search") + live aria-live count. Clears on Esc.
- *   - Six flat categories (INPUT/TEXT/AI/MEDIA/UTILITY/OUTPUT). Collapse state is
- *     LOCAL, persisted to localStorage SEPARATELY (NOT uiSlice). Default expanded
- *     INPUT/AI/OUTPUT, collapsed UTILITY. Collapsed groups get `inert`.
- *   - §11.10 NodeLibraryItem primitive (28px row, grip-dots on hover, visually-
- *     hidden "drag or press Enter to add" hint, focus ring offset 1px).
- *   - Empty-search state ('No nodes match "<query>"' + Clear search button).
- *   - Keyboard-add END-TO-END (closes the Phase 3 stub): Enter/Space on an item
- *     → setAddModeNodeType + announce + focus canvas → WorkflowCanvas places on
- *     pane click / Enter-at-center via the shared addNode path → Escape cancels
- *     (global handler in useWorkspaceShortcuts) + returns focus to the item.
+ * The category order adds RULES (spec §8) — empty until an MVP2 Condition node
+ * exists; the `grouped[cat].length > 0` filter keeps it hidden when empty so no
+ * empty section renders.
+ *
+ * Search is sourced from `uiSlice.buildQuery` so the header search box (spec §3.A)
+ * and this panel's local search box stay in sync (one source of truth). Both
+ * inputs write the same store field. Clear-on-Esc + live aria-live count.
+ *
+ * Phase 4 delivered the full §6 keyboard-add end-to-end; that contract is
+ * preserved here unchanged: Enter/Space → setAddModeNodeType + announce + focus
+ * canvas → WorkflowCanvas places via the shared addNode path → Escape cancels.
  *
  * Drag contract (§27) preserved: dataTransfer keys application/reactflow +
  * application/reactflow-label; aria-grabbed false→true during drag. Handled
- * inside NodeLibraryItem.
+ * inside NodeLibraryItem. Source-agnostic — moving the panel left→right does
+ * not affect the drop side (the canvas).
+ *
+ * NOTE: the component keeps the name `NodeLibrary`/file `NodeLibrary.tsx` to
+ * preserve imports (spec §40 "don't force the suggested structure if a good
+ * equivalent exists"); it IS the Build panel. Phase 5 completes the
+ * Build↔Inspector single-column swap.
  */
 
 const LIBRARY_ID = 'node-library-body';
 // If real NODE_DEFINITIONS exceeds ~40, install @tanstack/react-virtual and wrap
-// each per-category <ul> in a virtualizer (overscan 4). The 28px row anatomy is
-// already stable for it. Until then the flat render is cheaper than the
-// virtualizer overhead. Phase 4+ detail.
+// each per-category <ul> in a virtualizer (overscan 4). The row anatomy is stable
+// for it. Until then flat render is cheaper. Phase 4+ detail.
 
-const CATEGORY_ORDER: NodeCategory[] = ['INPUT', 'TEXT', 'AI', 'MEDIA', 'UTILITY', 'OUTPUT'];
+// Spec §8 category order (adds RULES between AI and MEDIA).
+const CATEGORY_ORDER: NodeCategory[] = ['INPUT', 'TEXT', 'AI', 'RULES', 'MEDIA', 'UTILITY', 'OUTPUT'];
 const DEFAULT_COLLAPSE: Record<NodeCategory, boolean> = {
-  INPUT: false, // expanded by default (spec §6)
+  INPUT: false, // expanded by default (spec §9 example)
   TEXT: false,
-  AI: false, // expanded by default (spec §6)
+  AI: false,
+  RULES: true, // empty for now — collapsed by default
   MEDIA: false,
-  UTILITY: true, // collapsed by default (spec §6)
-  OUTPUT: false, // expanded by default (spec §6)
+  UTILITY: true, // collapsed by default (spec §9 groups RULES/UTILITY)
+  OUTPUT: false, // expanded by default (spec §9 example)
 };
 const CAT_STORAGE_KEY = 'void-workflow:library-category-collapse';
-const ZERO_CURSOR: Record<NodeCategory, number> = {
-  INPUT: 0, TEXT: 0, AI: 0, MEDIA: 0, UTILITY: 0, OUTPUT: 0,
-};
 
 export function NodeLibrary() {
-  const collapsed = useWorkflowStore((s) => s.libraryCollapsed);
-  const width = useWorkflowStore((s) => s.libraryWidth);
-  const setWidth = useWorkflowStore((s) => s.setLibraryWidth);
-  const toggle = useWorkflowStore((s) => s.toggleLibrary);
+  // Phase 5: unified right-column panel (spec §15). The Build panel shares one
+  // width + one collapsed flag with the Inspector (set in WorkspaceShell). The
+  // shell gates collapsed-render, so `collapsed` here is always false when
+  // mounted; the splitter/toggle write the shared store fields.
+  const collapsed = useWorkflowStore((s) => s.rightPanelCollapsed);
+  const width = useWorkflowStore((s) => s.rightPanelWidth);
+  const setWidth = useWorkflowStore((s) => s.setRightPanelWidth);
+  const toggle = useWorkflowStore((s) => s.toggleRightPanel);
   const announce = useWorkflowStore((s) => s.setAnnouncement);
   const setAddModeNodeType = useWorkflowStore((s) => s.setAddModeNodeType);
+  // Single source of truth for search — shared with the header search box.
+  const query = useWorkflowStore((s) => s.buildQuery);
+  const setQuery = useWorkflowStore((s) => s.setBuildQuery);
 
-  const [query, setQuery] = useState('');
   const [collapseMap, setCollapseMap] = useLocalStorage<Record<NodeCategory, boolean>>(
     CAT_STORAGE_KEY,
     DEFAULT_COLLAPSE,
   );
-  const [cursor, setCursor] = useState<Record<NodeCategory, number>>({ ...ZERO_CURSOR });
 
   const splitter = useSplitter({
     orientation: 'vertical',
-    min: 200,
+    min: 280,
     max: 360,
     getValue: () => width,
     setValue: setWidth,
@@ -98,7 +106,7 @@ export function NodeLibrary() {
 
   const grouped = useMemo(() => {
     const g: Record<NodeCategory, NodeDefinition[]> = {
-      INPUT: [], TEXT: [], AI: [], MEDIA: [], UTILITY: [], OUTPUT: [],
+      INPUT: [], TEXT: [], AI: [], RULES: [], MEDIA: [], UTILITY: [], OUTPUT: [],
     };
     for (const d of filtered) g[d.category].push(d);
     return g;
@@ -125,69 +133,65 @@ export function NodeLibrary() {
     const list = grouped[cat];
     if (!list.length) return;
 
+    // DOM-focus-based roving tabindex: derive the current index from the
+    // focused element rather than tracking a cursor in state. ArrowDown/Up
+    // move relative to the focused item; Home/End jump to the ends.
+    const currentIndex = list.findIndex(
+      (d) => document.activeElement?.id === `library-item-${d.type}`,
+    );
+    const base = currentIndex === -1 ? 0 : currentIndex;
+
     if (e.key === 'ArrowDown') {
       e.preventDefault();
-      setCursor((prev) => {
-        const next = Math.min(prev[cat] + 1, list.length - 1);
-        document.getElementById(`library-item-${list[next].type}`)?.focus();
-        return { ...prev, [cat]: next };
-      });
+      const next = Math.min(base + 1, list.length - 1);
+      document.getElementById(`library-item-${list[next].type}`)?.focus();
     } else if (e.key === 'ArrowUp') {
       e.preventDefault();
-      setCursor((prev) => {
-        const next = Math.max(prev[cat] - 1, 0);
-        document.getElementById(`library-item-${list[next].type}`)?.focus();
-        return { ...prev, [cat]: next };
-      });
+      const next = Math.max(base - 1, 0);
+      document.getElementById(`library-item-${list[next].type}`)?.focus();
     } else if (e.key === 'Home') {
       e.preventDefault();
-      setCursor((prev) => {
-        document.getElementById(`library-item-${list[0].type}`)?.focus();
-        return { ...prev, [cat]: 0 };
-      });
+      document.getElementById(`library-item-${list[0].type}`)?.focus();
     } else if (e.key === 'End') {
       e.preventDefault();
-      setCursor((prev) => {
-        document.getElementById(`library-item-${list[list.length - 1].type}`)?.focus();
-        return { ...prev, [cat]: list.length - 1 };
-      });
+      document.getElementById(`library-item-${list[list.length - 1].type}`)?.focus();
     }
   };
 
   return (
     <aside
       aria-label="Node library"
-      className="relative flex h-full min-h-0 flex-col bg-surface-sidebar border-r border-border-subtle"
+      className="relative flex h-full min-h-0 flex-col bg-surface-sidebar border-l border-border-subtle"
       style={{ width }}
     >
-      <div className="flex h-8 shrink-0 items-center justify-between px-2">
-        <h2 className="text-[12px] font-semibold uppercase tracking-wide text-text-secondary">Nodes</h2>
-        <button
-          type="button"
-          aria-label="Collapse node library"
-          title="Collapse (Ctrl/Cmd+B)"
-          onClick={toggle}
-          className="rounded-control p-1 text-text-muted hover:bg-surface-hover hover:text-text-primary"
-        >
-          <ChevronRight size={14} aria-hidden="true" />
-        </button>
+      <div className="flex h-auto shrink-0 flex-col gap-0.5 px-3 pt-3 pb-2">
+        <div className="flex items-center justify-between">
+          <h2 className="text-[13px] font-semibold text-text-primary">Build</h2>
+          <button
+            type="button"
+            aria-label="Collapse build panel"
+            title="Collapse (Ctrl/Cmd+B)"
+            onClick={toggle}
+            className="rounded-control p-1 text-text-muted hover:bg-surface-hover hover:text-text-primary"
+          >
+            <ChevronRight size={14} aria-hidden="true" />
+          </button>
+        </div>
+        <p className="text-[11px] text-text-muted">Drag block into workflow</p>
       </div>
 
       <div id={LIBRARY_ID} className="min-h-0 flex-1 overflow-y-auto pb-2">
-        {/* Search input (32px, surface.panel, border.subtle, 4px radius) */}
-        <div className="relative shrink-0 px-1 pb-1">
+        {/* Search input — sourced from buildQuery (shared with header search) */}
+        <div className="relative shrink-0 px-2 pb-2">
           <Search
             size={14}
             aria-hidden="true"
-            className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-text-muted"
+            className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-text-muted"
           />
           <input
             type="text"
             value={query}
-            onChange={(e) => {
-              setQuery(e.target.value);
-              setCursor({ ...ZERO_CURSOR });
-            }}
+            onChange={(e) => setQuery(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === 'Escape' && query) {
                 e.preventDefault();
@@ -196,22 +200,18 @@ export function NodeLibrary() {
                 // (it would otherwise also clear the canvas selection).
                 e.stopPropagation();
                 setQuery('');
-                setCursor({ ...ZERO_CURSOR });
               }
             }}
             placeholder="Search nodes…"
             aria-label="Search nodes"
-            className="h-8 w-full rounded-[4px] border border-border-subtle bg-surface-panel pl-7 pr-7 text-[12px] text-text-primary placeholder:text-[11px] placeholder:text-text-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-border-focus focus-visible:ring-offset-1"
+            className="h-8 w-full rounded-control border border-border-subtle bg-surface-panel pl-8 pr-8 text-[12px] text-text-primary placeholder:text-text-muted focus:border-border-focus focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-border-focus focus-visible:ring-offset-1"
           />
           {query && (
             <button
               type="button"
               aria-label="Clear search"
-              onClick={() => {
-                setQuery('');
-                setCursor({ ...ZERO_CURSOR });
-              }}
-              className="absolute right-2 top-1/2 -translate-y-1/2 rounded-control p-0.5 text-text-muted hover:bg-surface-hover hover:text-text-primary"
+              onClick={() => setQuery('')}
+              className="absolute right-3 top-1/2 -translate-y-1/2 rounded-control p-0.5 text-text-muted hover:bg-surface-hover hover:text-text-primary"
             >
               <X size={14} aria-hidden="true" />
             </button>
@@ -224,19 +224,12 @@ export function NodeLibrary() {
         </div>
 
         {query && matchCount === 0 ? (
-          <EmptySearchState
-            query={query}
-            onClear={() => {
-              setQuery('');
-              setCursor({ ...ZERO_CURSOR });
-            }}
-          />
+          <EmptySearchState query={query} onClear={() => setQuery('')} />
         ) : (
           CATEGORY_ORDER.filter((cat) => grouped[cat].length > 0).map((cat) => {
             const isCollapsed = !!collapseMap[cat];
             // During an active search, force-expand every category that has
-            // matches — the user is looking for results, not managing collapse.
-            // collapseMap itself is NOT mutated by searching.
+            // matches. collapseMap itself is NOT mutated by searching.
             const effectivelyCollapsed = !query && isCollapsed;
             return (
               <section key={cat}>
@@ -245,7 +238,7 @@ export function NodeLibrary() {
                   aria-expanded={!effectivelyCollapsed}
                   aria-controls={`cat-${cat}`}
                   onClick={() => setCollapseMap((prev) => ({ ...prev, [cat]: !prev[cat] }))}
-                  className="flex w-full items-center gap-1 px-2 py-1 text-left text-[11px] font-semibold uppercase tracking-wide text-text-muted hover:bg-surface-hover"
+                  className="flex w-full items-center gap-1 px-3 py-1 text-left text-[10px] font-semibold uppercase tracking-wide text-text-muted hover:bg-surface-hover"
                 >
                   {effectivelyCollapsed ? (
                     <ChevronRight size={12} aria-hidden="true" />
@@ -259,14 +252,12 @@ export function NodeLibrary() {
                   id={`cat-${cat}`}
                   role="list"
                   inert={effectivelyCollapsed || undefined}
-                  className={cn('flex flex-col gap-0.5 py-1', effectivelyCollapsed && 'hidden')}
+                  className={cn('flex flex-col gap-1 px-2 py-1', effectivelyCollapsed && 'hidden')}
                 >
-                  {grouped[cat].map((def, i) => (
+                  {grouped[cat].map((def) => (
                     <NodeLibraryItem
                       key={def.type}
                       def={def}
-                      tabIndex={cursor[cat] === i ? 0 : -1}
-                      onActivate={() => setCursor((prev) => ({ ...prev, [cat]: i }))}
                       onKeyDown={(e) => onItemKeyDown(e, def, cat)}
                     />
                   ))}
@@ -277,15 +268,15 @@ export function NodeLibrary() {
         )}
       </div>
 
-      {/* Right-edge resize splitter */}
+      {/* Left-edge resize splitter (panel is on the right) */}
       <div
-        {...splitterAria({ orientation: 'vertical', value: width, min: 200, max: 360, controlsId: LIBRARY_ID })}
+        {...splitterAria({ orientation: 'vertical', value: width, min: 280, max: 360, controlsId: LIBRARY_ID })}
         onPointerDown={splitter.onPointerDown}
         onPointerMove={splitter.onPointerMove}
         onPointerUp={splitter.onPointerUp}
         onKeyDown={splitter.onKeyDown}
-        className="absolute right-0 top-12 z-[var(--z-panel)] h-[calc(100%-3rem)] w-1 cursor-ew-resize bg-transparent hover:bg-border-focus"
-        style={{ marginRight: -2 }}
+        className="absolute left-0 top-0 z-[var(--z-panel)] h-full w-1 cursor-ew-resize bg-transparent hover:bg-border-focus"
+        style={{ marginLeft: -2 }}
       />
     </aside>
   );
@@ -293,7 +284,7 @@ export function NodeLibrary() {
 
 function EmptySearchState({ query, onClear }: { query: string; onClear: () => void }) {
   return (
-    <div role="status" aria-live="polite" className="px-2 py-4 text-center">
+    <div role="status" aria-live="polite" className="px-3 py-4 text-center">
       <p className="text-[12px] text-text-muted">No nodes match &ldquo;{query}&rdquo;</p>
       <button
         type="button"

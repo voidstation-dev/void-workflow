@@ -40,6 +40,7 @@ const TOKEN: Record<StatusValue, string> = {
   configured: 'status-success',
   degraded: 'status-warning',
   down: 'status-error',
+  unknown: 'status-idle',
 };
 
 const ICON: Record<StatusValue, LucideIcon> = {
@@ -53,6 +54,7 @@ const ICON: Record<StatusValue, LucideIcon> = {
   configured: Check,
   degraded: TriangleAlert,
   down: XCircle,
+  unknown: Circle,
 };
 
 const WORD: Record<StatusValue, string> = {
@@ -66,6 +68,7 @@ const WORD: Record<StatusValue, string> = {
   configured: 'configured',
   degraded: 'degraded',
   down: 'down',
+  unknown: 'unknown',
 };
 
 export function StatusBadge({

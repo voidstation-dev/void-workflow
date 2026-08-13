@@ -1,41 +1,38 @@
 import { useState, type DragEvent, type KeyboardEvent } from 'react';
-import { GripVertical, TriangleAlert } from 'lucide-react';
+import { TriangleAlert } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { getNodeIcon } from './icons';
 import type { NodeDefinition } from '@/nodes/registry';
 
 /**
- * NodeLibraryItem — DESIGN_SYSTEM §11.10 primitive (the 10th primitive).
- *
- * Anatomy (spec §6): 28px row (h-7), 8px horizontal padding (px-2), 4px gap
- * (gap-1): [16px icon aria-hidden] [name 12px text-primary, single-line —
- * description in tooltip] [drag affordance: 12px grip-dots on hover, aria-hidden,
- * + visually-hidden "drag or press Enter to add" hint]. Hover: surface.hover
- * full row, rounded-control (4px) inset. :focus-visible: 2px --border-focus
- * ring, offset 1px (closes audit §6 no-focus-visible gap).
+ * NodeLibraryItem — Build panel item (spec §10). 42–48px tall row, subtle border,
+ * white background, 8px radius (rounded-control), mild hover elevation, whole-row
+ * draggable. Renders the node icon + label + an optional description line + a
+ * trailing badge (Note / Not-executable-yet / New / Beta / Experimental).
  *
  * Drag contract (preserved, audit §8 / §27): pointer drag sets
  * application/reactflow + application/reactflow-label; aria-grabbed flips
- * false→true during drag. No contract change.
+ * false→true during drag. No contract change. Source-agnostic — the panel
+ * moved left→right but the drop side (canvas) is unaffected.
  *
  * The library is ALWAYS keyboard-usable, never drag-only (frozen invariant):
  * Enter/Space is handled by the parent (onKeyDown) which enters add-mode and
  * focuses the canvas; Escape is handled globally by useWorkspaceShortcuts.
+ *
+ * Status is never color-only: "Not executable yet" = TriangleAlert icon + text +
+ * text-status-warning. The "Note" badge is a type indicator (text-text-muted),
+ * not a warning — markdownNote never blocks a run.
  */
 
 export interface NodeLibraryItemProps {
   def: NodeDefinition;
-  /** Roving tabindex: 0 for the cursor item, -1 otherwise. */
-  tabIndex: 0 | -1;
-  /** Fired on click (used by the parent to move the roving cursor). */
-  onActivate: () => void;
   /** Arrow-key + Enter/Space handling owned by the parent (needs category ctx). */
   onKeyDown: (e: KeyboardEvent<HTMLDivElement>) => void;
 }
 
 type Badge = 'note' | 'not-executable' | null;
 
-export function NodeLibraryItem({ def, tabIndex, onActivate, onKeyDown }: NodeLibraryItemProps) {
+export function NodeLibraryItem({ def, onKeyDown }: NodeLibraryItemProps) {
   const Icon = getNodeIcon(def.icon);
   const [grabbed, setGrabbed] = useState(false);
 
@@ -60,7 +57,7 @@ export function NodeLibraryItem({ def, tabIndex, onActivate, onKeyDown }: NodeLi
       <div
         id={`library-item-${def.type}`}
         role="button"
-        tabIndex={tabIndex}
+        tabIndex={0}
         draggable
         aria-grabbed={grabbed}
         aria-label={`${def.label}: ${def.description}`}
@@ -68,15 +65,17 @@ export function NodeLibraryItem({ def, tabIndex, onActivate, onKeyDown }: NodeLi
         onDragStart={handleDragStart}
         onDragEnd={handleDragEnd}
         onKeyDown={onKeyDown}
-        onClick={onActivate}
         className={cn(
-          'group flex h-7 items-center gap-1 rounded-control px-2',
-          'cursor-grab hover:bg-surface-hover',
+          'group flex min-h-[44px] cursor-grab items-center gap-2 rounded-control border border-border-subtle bg-surface-panel px-3 py-2',
+          'transition-shadow hover:border-border-default hover:shadow-node',
           'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-border-focus focus-visible:ring-offset-1',
         )}
       >
-        <Icon size={16} className="shrink-0 text-text-secondary" aria-hidden="true" />
-        <span className="min-w-0 flex-1 truncate text-[12px] text-text-primary">{def.label}</span>
+        <Icon size={18} className="shrink-0 text-text-secondary" aria-hidden="true" />
+        <div className="min-w-0 flex-1">
+          <div className="truncate text-[12px] font-medium text-text-primary">{def.label}</div>
+          <div className="truncate text-[11px] text-text-muted">{def.description}</div>
+        </div>
 
         {badge === 'note' && (
           <span className="shrink-0 text-[10px] text-text-muted">Note</span>
@@ -87,15 +86,8 @@ export function NodeLibraryItem({ def, tabIndex, onActivate, onKeyDown }: NodeLi
             title="This node type has no backend handler and cannot run yet."
           >
             <TriangleAlert size={10} aria-hidden="true" />
-            Not executable yet
           </span>
         )}
-
-        <GripVertical
-          size={12}
-          className="shrink-0 text-text-muted opacity-0 group-hover:opacity-100"
-          aria-hidden="true"
-        />
 
         <span className="sr-only">drag or press Enter to add</span>
       </div>

@@ -1,14 +1,12 @@
-import React, { useCallback, useEffect, useMemo, useRef } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ReactFlow,
   Background,
-  Controls,
   MiniMap,
   Panel,
   ReactFlowProvider,
   useReactFlow,
   useOnSelectionChange,
-  useStore,
   getOutgoers,
   MarkerType,
   Connection,
@@ -23,17 +21,36 @@ import { nodeTypes } from '@/nodes/nodeTypes';
 import { NODE_DEFINITIONS } from '@/nodes/registry';
 import { resolvePortType, isTypeCompatible } from '@/nodes/portCompat';
 import { useKeyboardConnect } from '@/hooks/useKeyboardConnect';
+import { CanvasToolbar } from './CanvasToolbar';
+import { StartMarker } from './StartMarker';
+import { ContextMenu, ContextMenuTrigger } from '@/components/primitives/ContextMenu';
+import { CanvasContextMenuContent } from './CanvasContextMenu';
+import { GroupToolbar } from './GroupToolbar';
+import { InsertEdge } from './InsertEdge';
+
+// Phase G (spec §33/§66): the default edge is the custom InsertEdge — the
+// normal bezier path PLUS a hover `+` button at the midpoint that opens a node
+// picker to splice a new node between A and B (A→B becomes A→New→B). A single
+// edgeTypes map (defined once, stable ref) so RF doesn't warn about a new map
+// each render (§27 stable selectors — same discipline for edgeTypes).
+const edgeTypes = { insert: InsertEdge };
 
 const defaultEdgeOptions = {
-  type: 'default',
+  type: 'insert',
   style: { stroke: 'var(--edge-stroke)', strokeWidth: 1.5 },
   markerEnd: { type: MarkerType.ArrowClosed, color: 'var(--border-default)', width: 16, height: 16 },
 } as const;
 
 function CanvasInner() {
-  const reactFlowWrapper = useRef<HTMLDivElement>(null);
   const { nodes, edges, onNodesChange, onEdgesChange, onConnect, addNode } = useWorkflowStore();
   const { screenToFlowPosition, getNodes, getEdges, fitView, setCenter } = useReactFlow();
+  // Pane context-menu: capture the flow-space click position so the menu's
+  // "Add Node"/"Paste" can place exactly at the cursor. Radix ContextMenu
+  // opens at the native contextmenu point; we just record the coords here
+  // (single owner of screenToFlowPosition — the menu content only reads them).
+  const [paneFlowPos, setPaneFlowPos] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
+  // Phase 6: zoom/fit/undo-redo/density/minimap moved to CanvasToolbar; the
+  // canvas still needs fitView (templates + pendingCenter) and setCenter.
   // Cross-zone keyboard-add channel (spec §6): the library writes addModeNodeType;
   // we consume it on a pane click / Enter-at-center and place via addNode.
   const addModeNodeType = useWorkflowStore((s) => s.addModeNodeType);
@@ -45,11 +62,18 @@ function CanvasInner() {
   const selectNode = useWorkflowStore((s) => s.selectNode);
   const selectEdge = useWorkflowStore((s) => s.selectEdge);
   const setMultiSelect = useWorkflowStore((s) => s.setMultiSelect);
-  const clearSelection = useWorkflowStore((s) => s.clearSelection);
+  // Multi-select group toolbar (spec §55/§65): shown when >1 node is selected.
+  // selectionMode is a scalar; multiSelectIds is the store's existing array
+  // (stable ref — not a derived fresh array, §27-safe).
+  const selectionMode = useWorkflowStore((s) => s.selectionMode);
+  const multiSelectIds = useWorkflowStore((s) => s.multiSelectIds);
+  const showGroupToolbar = selectionMode === 'multi' && multiSelectIds.length > 1;
   // Cross-zone canvas-center channel (spec §9.4): the BottomDock Problems panel
   // writes pendingCenterNodeId; we pan the canvas to it, then clear the one-shot.
   const pendingCenterNodeId = useWorkflowStore((s) => s.pendingCenterNodeId);
   const setPendingCenter = useWorkflowStore((s) => s.setPendingCenter);
+  // Phase E (spec §26): double-click a node opens the NodeDetailPanel Sheet.
+  const openNodeDetail = useWorkflowStore((s) => s.openNodeDetail);
 
   // Consume a pending center request from the dock (Problems click-to-focus).
   // Lives here because useReactFlow().setCenter must run inside the provider.
@@ -182,6 +206,18 @@ function CanvasInner() {
     [addModeNodeType, screenToFlowPosition, placeNode, setAddModeNodeType, announce],
   );
 
+  // Phase E (spec §26): double-click a node → open the NodeDetailPanel Sheet
+  // (Configure / Input / Output / Run / Preview tabs). Single click still
+  // selects (RF default) → toolbar + Inspector; the double-click is the
+  // distinct "open detail" gesture and does not replace selection. The detail
+  // panel reads `detailNodeId` from the store and renders as a right-side Sheet.
+  const onNodeDoubleClick = useCallback(
+    (_event: React.MouseEvent, node: AppNode) => {
+      openNodeDetail(node.id);
+    },
+    [openNodeDetail],
+  );
+
   // Keyboard-add: Enter at canvas center places the node. Window-level so Enter
   // is caught regardless of which canvas child holds focus; guarded by
   // addModeNodeType so it only fires during add-mode. Escape is NOT handled
@@ -251,6 +287,13 @@ function CanvasInner() {
       ].filter(Boolean).join(' ');
       return {
         ...edge,
+        // Phase G: render every edge as the InsertEdge (custom edge with the
+        // hover `+` insert button, spec §33) unless it explicitly sets a
+        // different custom type. Legacy edges saved as type:'default' get
+        // normalized here so loaded graphs also gain the `+` affordance —
+        // store.edges stays plain (save serializes the original type; the
+        // rendered override never persists). See edgeTypes + defaultEdgeOptions.
+        type: edge.type && edge.type !== 'default' ? edge.type : 'insert',
         animated: isRunningPayload,
         className,
         ariaLabel: `Connection from ${sourceLabel} to ${targetLabel}: ${sourceType}`,
@@ -258,21 +301,19 @@ function CanvasInner() {
     });
   }, [edges, selectedEdgeId, perNodeStatus, nodes]);
 
-  // Live zoom percentage for the bottom-right Panel (spec §7.2).
-  const zoomPct = useStore((s) => Math.round((s.transform[2] ?? 1) * 100));
-
-  const onFitView = useCallback(() => {
-    fitView({ duration: 0 });
-  }, [fitView]);
-
-  // Context menu DEFERRED (spec §7.2). Right-click on canvas = deselect (same as
-  // an empty click) + suppress the browser context menu. No role="menu" DOM.
+  // Pane context menu (spec §53). RF fires onPaneContextMenu on pane right-
+  // click; we record the flow-space click position for the Radix ContextMenu's
+  // Add Node / Paste actions to place exactly at the cursor. We do NOT clear
+  // selection and do NOT call preventDefault here — the Radix ContextMenuTrigger
+  // wrapping the canvas opens the menu at the cursor and suppresses the native
+  // browser menu; calling preventDefault in this RF handler first would make
+  // the bubbling contextmenu event defaultPrevented before Radix sees it, and
+  // Radix skips opening on a default-prevented event. So we only capture coords.
   const onPaneContextMenu = useCallback(
     (e: MouseEvent | React.MouseEvent) => {
-      e.preventDefault();
-      clearSelection();
+      setPaneFlowPos(screenToFlowPosition({ x: e.clientX, y: e.clientY }));
     },
-    [clearSelection],
+    [screenToFlowPosition],
   );
 
   // Empty-state template buttons (spec §7.1). Insert pre-wired nodes+edges via
@@ -306,7 +347,9 @@ function CanvasInner() {
   }, [addNode, onConnect, fitView]);
 
   return (
-    <div className="flex-grow h-full w-full bg-surface-canvas" ref={reactFlowWrapper}>
+    <ContextMenu>
+      <ContextMenuTrigger asChild>
+    <div className="flex-grow h-full w-full bg-surface-canvas">
       <ReactFlow
         nodes={nodes}
         edges={styledEdges}
@@ -318,10 +361,12 @@ function CanvasInner() {
         onDragOver={onDragOver}
         onPaneClick={onPaneClick}
         onPaneContextMenu={onPaneContextMenu}
+        onNodeDoubleClick={onNodeDoubleClick}
         defaultEdgeOptions={defaultEdgeOptions}
         nodeTypes={nodeTypes}
+        edgeTypes={edgeTypes}
         fitView
-        colorMode="dark"
+        colorMode="light"
         // Multi-select (spec §16 "Phase 5+"): cheap additive RF built-ins.
         // selectionOnDrag=false keeps pan/drag semantics unchanged — rubberband
         // only with Shift held (selectionKeyCode). Shift+click adds.
@@ -330,25 +375,29 @@ function CanvasInner() {
         multiSelectionKeyCode="Shift"
       >
         <Background color="var(--surface-canvas-grid)" gap={24} />
-        <Controls
-          showInteractive={false}
-          className="border-border-default [&_button]:rounded-control [&_button]:border-0 [&_button]:bg-surface-panel [&_button]:text-text-secondary hover:[&_button]:bg-surface-hover [&_svg]:fill-text-secondary"
-        />
-        {/* Bottom-right cluster: Fit button + zoom % (spec §7.2). */}
-        <Panel position="bottom-right" className="mb-16 mr-1 flex items-center gap-2">
-          <button
-            type="button"
-            onClick={onFitView}
-            aria-label="Fit view"
-            title="Fit view (0)"
-            className="rounded-control border border-border-default bg-surface-panel px-2 py-1 text-[11px] text-text-secondary hover:bg-surface-hover hover:text-text-primary"
-          >
-            Fit
-          </button>
-          <span className="rounded-control border border-border-default bg-surface-panel px-2 py-1 text-[11px] text-text-muted" aria-live="off">
-            {zoomPct}%
-          </span>
+        {/* Phase 6: StartMarker — a React Flow Panel overlay (NOT a node),
+            pinned top-left as a visual workflow-start affordance. aria-hidden
+            (no actionable semantics; Run lives in the header). Never enters
+            nodeTypes, save JSON, or isValidConnection (spec §7.2 / §10). */}
+        {nodes.length > 0 && (
+          <Panel position="top-left" className="pointer-events-none m-2">
+            <StartMarker />
+          </Panel>
+        )}
+        {/* Phase 6: CanvasToolbar — bottom-center compact bar (spec §9):
+            Outline/Detail density toggle, Undo/Redo, Fit, zoom −/%/+, Minimap.
+            Replaces the vertical Controls + the bottom-right Fit+zoom Panel. */}
+        <Panel position="bottom-center" className="mb-2">
+          <CanvasToolbar />
         </Panel>
+        {/* Multi-select group toolbar (spec §55/§65): Duplicate · Delete · Align.
+            Shown only when >1 node is selected. Rendered as a bottom-center
+            Panel lifted ABOVE the CanvasToolbar so the two don't overlap. */}
+        {showGroupToolbar && (
+          <Panel position="bottom-center" className="mb-[3.25rem]">
+            <GroupToolbar ids={multiSelectIds} />
+          </Panel>
+        )}
         {/* Empty state (spec §7.1): DOM-removed (conditional render, not
             hidden) the moment nodes.length > 0. aria-live polite on first
             appearance. pointer-events-auto on the action buttons only. */}
@@ -397,6 +446,11 @@ function CanvasInner() {
         )}
       </ReactFlow>
     </div>
+      </ContextMenuTrigger>
+      {/* Pane right-click menu (spec §53): Add Node · Paste · Fit View.
+          flowPosition is captured by onPaneContextMenu at right-click time. */}
+      <CanvasContextMenuContent flowPosition={paneFlowPos} />
+    </ContextMenu>
   );
 }
 
