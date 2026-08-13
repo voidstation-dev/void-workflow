@@ -83,11 +83,12 @@ export interface ConfigField {
    * Basic section stays low-noise. Default false (Basic).
    */
   advanced?: boolean;
+  pickerMode?: 'file' | 'directory';
 }
 
-export type NodeCategory = 'INPUT' | 'TEXT' | 'AI' | 'RULES' | 'MEDIA' | 'UTILITY' | 'OUTPUT';
+export type NodeCategory = 'INPUT' | 'TEXT' | 'AI' | 'RULES' | 'VIDEO' | 'AUDIO' | 'CAPTIONS' | 'MEDIA' | 'MARKETING' | 'UTILITY' | 'OUTPUT';
 export type RegistryState = 'canonical' | 'frontend-only';
-export type ExecutionMode = 'runtime' | 'annotation' | 'viewer';
+export type ExecutionMode = 'runtime' | 'annotation' | 'viewer' | 'planned';
 
 export interface NodeDefinition {
   type: string;
@@ -104,6 +105,7 @@ export interface NodeDefinition {
   /** Legacy UI capability. Scheduler participation is owned by executionMode. */
   executable: boolean;
   registryState: RegistryState;
+  maturity?: 'stable' | 'beta' | 'design-only';
   /**
    * Derive a short card-body summary + compact metadata chips from the node's
    * configured data (spec §6/§7/§13). Returns { description, chips }. The card
@@ -116,10 +118,9 @@ export interface NodeDefinition {
 }
 
 // Minimal but real port + schema entries. Full schemas/ports expand in Phase 5/6.
-const textIn: Port = { id: 'in', label: 'Input', type: 'text', required: true };
-const textOut: Port = { id: 'out', label: 'Output', type: 'text' };
-const fileOut: Port = { id: 'out', label: 'Files', type: 'file' };
-const mediaOut: Port = { id: 'out', label: 'Media', type: 'media' };
+const textIn: Port = { id: 'text', label: 'Text', type: 'text', required: true };
+const textOut: Port = { id: 'text', label: 'Text', type: 'text' };
+const fileOut: Port = { id: 'file', label: 'File', type: 'file' };
 
 const RAW_NODE_DEFINITIONS: Omit<NodeDefinition, 'version' | 'executionMode'>[] = [
   {
@@ -180,7 +181,7 @@ const RAW_NODE_DEFINITIONS: Omit<NodeDefinition, 'version' | 'executionMode'>[] 
     icon: 'Clock',
     description: 'Pause workflow execution for a number of seconds.',
     keywords: ['delay', 'wait', 'pause', 'sleep', 'timer'],
-    ports: { in: [{ id: 'in', label: 'Input', type: 'any', required: true }], out: [{ id: 'out', label: 'Output', type: 'any' }] },
+    ports: { in: [{ id: 'value', label: 'Value', type: 'any', required: true }], out: [{ id: 'value', label: 'Value', type: 'any' }] },
     configSchema: [
       { key: 'seconds', label: 'Delay (s)', type: 'number', default: 1, min: 0, step: 0.1 },
     ],
@@ -199,7 +200,7 @@ const RAW_NODE_DEFINITIONS: Omit<NodeDefinition, 'version' | 'executionMode'>[] 
     icon: 'Sparkles',
     description: 'Run a prompt through the Gemini model.',
     keywords: ['ai', 'gemini', 'llm', 'prompt', 'gpt'],
-    ports: { in: [textIn], out: [textOut] },
+    ports: { in: [{ id: 'input', label: 'Input', type: 'any' }], out: [textOut, { id: 'json', label: 'JSON', type: 'json' }] },
     // Spec §45 Inspector: Provider / Model / Prompt / System Instructions /
     // Output (Text|JSON|Structured) / Temperature, plus Advanced: Timeout,
     // Schema. Delivered through the shared configSchema + PropertyRow +
@@ -273,7 +274,7 @@ const RAW_NODE_DEFINITIONS: Omit<NodeDefinition, 'version' | 'executionMode'>[] 
     icon: 'Info',
     description: 'Probe media metadata (duration, codec, resolution).',
     keywords: ['media', 'info', 'ffprobe', 'metadata', 'video', 'audio'],
-    ports: { in: [{ id: 'in', label: 'Media', type: 'media', required: true }], out: [{ id: 'out', label: 'Metadata', type: 'json' }] },
+    ports: { in: [{ id: 'media', label: 'Media', type: 'media', required: true }], out: [{ id: 'metadata', label: 'Metadata', type: 'json' }, { id: 'media', label: 'Media', type: 'media' }] },
     // Spec §47: the Inspector shows Summary / Video / Audio / Raw sub-tabs,
     // with Raw FFprobe output as Advanced only. This is the one per-node
     // structural exception — rendered as nested Radix Tabs inside the generic
@@ -294,11 +295,11 @@ const RAW_NODE_DEFINITIONS: Omit<NodeDefinition, 'version' | 'executionMode'>[] 
     icon: 'FileText',
     description: 'Write incoming text to an output file.',
     keywords: ['save', 'text', 'output', 'write', 'file'],
-    ports: { in: [textIn], out: [] },
+    ports: { in: [textIn], out: [{ id: 'artifact', label: 'Artifact', type: 'artifact' }] },
     // Spec §48 Inspector: Filename / Output Directory / Overwrite behavior.
     configSchema: [
       { key: 'filename', label: 'Filename', type: 'text', default: 'output.txt', placeholder: 'output.txt' },
-      { key: 'outputDir', label: 'Output Directory', type: 'file-picker', default: '', placeholder: 'runs/<id>/', help: 'Empty = the run output folder.' },
+      { key: 'outputDir', label: 'Output Directory', type: 'file-picker', pickerMode: 'directory', default: '', placeholder: 'runs/<id>/', help: 'Empty = the run output folder.' },
       { key: 'overwrite', label: 'Overwrite behavior', type: 'select', default: 'rename', options: [
         { value: 'rename', label: 'Rename if exists' },
         { value: 'overwrite', label: 'Overwrite' },
@@ -320,7 +321,7 @@ const RAW_NODE_DEFINITIONS: Omit<NodeDefinition, 'version' | 'executionMode'>[] 
     icon: 'FileText',
     description: 'Write incoming JSON to an output file.',
     keywords: ['save', 'json', 'output', 'write', 'file'],
-    ports: { in: [{ id: 'in', label: 'Input', type: 'json', required: true }], out: [] },
+    ports: { in: [{ id: 'json', label: 'JSON', type: 'json', required: true }], out: [{ id: 'artifact', label: 'Artifact', type: 'artifact' }] },
     // Spec §49 Inspector: Filename / Formatting (Pretty|Compact) / Output Directory.
     configSchema: [
       { key: 'filename', label: 'Filename', type: 'text', default: 'output.json', placeholder: 'output.json' },
@@ -328,7 +329,12 @@ const RAW_NODE_DEFINITIONS: Omit<NodeDefinition, 'version' | 'executionMode'>[] 
         { value: 'pretty', label: 'Pretty (indented)' },
         { value: 'compact', label: 'Compact (minified)' },
       ] },
-      { key: 'outputDir', label: 'Output Directory', type: 'file-picker', default: '', placeholder: 'runs/<id>/', help: 'Empty = the run output folder.' },
+      { key: 'outputDir', label: 'Output Directory', type: 'file-picker', pickerMode: 'directory', default: '', placeholder: 'runs/<id>/', help: 'Empty = the run output folder.' },
+      { key: 'overwrite', label: 'Overwrite behavior', type: 'select', default: 'rename', options: [
+        { value: 'rename', label: 'Rename if exists' },
+        { value: 'overwrite', label: 'Overwrite' },
+        { value: 'skip', label: 'Skip' },
+      ] },
     ],
     inspectorTabs: ['Configuration'],
     executable: true,
@@ -344,9 +350,9 @@ const RAW_NODE_DEFINITIONS: Omit<NodeDefinition, 'version' | 'executionMode'>[] 
     label: 'Save Artifact',
     category: 'OUTPUT',
     icon: 'Save',
-    description: 'Persist a media/file artifact from the workflow. (Not executable yet — backend handler pending.)',
+    description: 'Persist a media/file artifact from the workflow.',
     keywords: ['save', 'artifact', 'output', 'media', 'file'],
-    ports: { in: [{ id: 'in', label: 'Artifact', type: 'artifact', required: true }], out: [] },
+    ports: { in: [{ id: 'artifact', label: 'Artifact', type: 'any', required: true }], out: [{ id: 'artifact', label: 'Artifact', type: 'artifact' }] },
     // Spec §50 Inspector: Filename / Location / Artifact type / Overwrite
     // behavior. `registryState='frontend-only'` — the backend handler is
     // pending, so the card + Inspector carry the "Not executable yet" badge
@@ -354,7 +360,7 @@ const RAW_NODE_DEFINITIONS: Omit<NodeDefinition, 'version' | 'executionMode'>[] 
     // correctly ahead of the backend landing.
     configSchema: [
       { key: 'filename', label: 'Filename', type: 'text', default: 'artifact', placeholder: 'artifact' },
-      { key: 'outputDir', label: 'Location', type: 'file-picker', default: '', placeholder: 'runs/<id>/', help: 'Empty = the run output folder.' },
+      { key: 'outputDir', label: 'Location', type: 'file-picker', pickerMode: 'directory', default: '', placeholder: 'runs/<id>/', help: 'Empty = the run output folder.' },
       { key: 'artifactType', label: 'Artifact type', type: 'select', default: 'auto', options: [
         { value: 'auto', label: 'Automatic (from input)' },
         { value: 'video', label: 'Video' },
@@ -370,7 +376,7 @@ const RAW_NODE_DEFINITIONS: Omit<NodeDefinition, 'version' | 'executionMode'>[] 
     ],
     inspectorTabs: ['Configuration'],
     executable: true,
-    registryState: 'frontend-only',
+    registryState: 'canonical',
     summarize: (data) => {
       const at = String(data.artifactType ?? 'auto');
       const atLabel: Record<string, string> = { auto: 'Automatic type', video: 'Video', audio: 'Audio', image: 'Image', file: 'File' };
@@ -386,14 +392,17 @@ const RAW_NODE_DEFINITIONS: Omit<NodeDefinition, 'version' | 'executionMode'>[] 
     label: 'Media Merge',
     category: 'MEDIA',
     icon: 'Layers',
-    description: 'Combine multiple media inputs into one output.',
+    description: 'Combine a video with an optional audio track.',
     keywords: ['media', 'merge', 'combine', 'concat', 'ffmpeg'],
     // Port model unchanged (single 'media' input) — the §35 two-input layout
     // is an illustrative example, not a Phase F mandate, and changing port
     // IDs would break saved graphs + the addNextStep/insertNodeBetween
     // first-port contract (§27 "visual redesign must not break runtime
     // behavior"). Phase F deep-designs the Inspector (§51), not the ports.
-    ports: { in: [{ id: 'in', label: 'Media', type: 'media', required: true }], out: [mediaOut] },
+    ports: { in: [
+      { id: 'video', label: 'Video', type: 'video', required: true },
+      { id: 'audio', label: 'Audio', type: 'audio' },
+    ], out: [{ id: 'video', label: 'Video', type: 'video' }] },
     // Spec §51 Inspector: Audio Mode (Replace|Mix) / Duration
     // (Shortest|Video|Audio) / Output (resolution + fps) + Advanced: Video
     // codec / Audio codec / Bitrate.
@@ -407,13 +416,13 @@ const RAW_NODE_DEFINITIONS: Omit<NodeDefinition, 'version' | 'executionMode'>[] 
         { value: 'video', label: 'Match Video' },
         { value: 'audio', label: 'Match Audio' },
       ] },
-      { key: 'resolution', label: 'Resolution', type: 'select', default: '1080p', options: [
+      { key: 'resolution', label: 'Resolution', type: 'select', default: 'source', options: [
         { value: '480p', label: '480p' },
         { value: '720p', label: '720p' },
         { value: '1080p', label: '1080p' },
         { value: 'source', label: 'Match source' },
       ] },
-      { key: 'fps', label: 'Frame rate', type: 'select', default: '30', options: [
+      { key: 'fps', label: 'Frame rate', type: 'select', default: 'source', options: [
         { value: '24', label: '24 fps' },
         { value: '30', label: '30 fps' },
         { value: '60', label: '60 fps' },
@@ -430,7 +439,7 @@ const RAW_NODE_DEFINITIONS: Omit<NodeDefinition, 'version' | 'executionMode'>[] 
         { value: 'mp3', label: 'MP3' },
         { value: 'opus', label: 'Opus' },
       ], advanced: true },
-      { key: 'bitrate', label: 'Bitrate', type: 'text', default: '8M', placeholder: '8M', advanced: true, help: 'Target video bitrate, e.g. 8M, 12M.' },
+      { key: 'bitrate', label: 'Bitrate', type: 'text', default: 'auto', placeholder: 'Auto or 8M', advanced: true, help: 'Auto keeps the encoder default.' },
     ],
     inspectorTabs: ['Configuration'],
     executable: true,
@@ -448,18 +457,18 @@ const RAW_NODE_DEFINITIONS: Omit<NodeDefinition, 'version' | 'executionMode'>[] 
     label: 'Preview',
     category: 'MEDIA',
     icon: 'Eye',
-    description: 'Preview the latest upstream result without entering the runtime DAG.',
+    description: 'Capture and preview the latest upstream runtime value.',
     keywords: ['preview', 'view', 'inspect', 'media'],
     // Spec §52: accepts any single input and previews it by type (Text /
     // JSON / Image / Audio / Video). The `any` input port lets any upstream
     // node feed it. No config fields — it is a pure viewer, so the Configure
     // tab only shows the node Name. Double-click jumps straight to the
     // Preview tab (handled in NodeDetailPanel, §52).
-    ports: { in: [{ id: 'in', label: 'Input', type: 'any', required: true }], out: [] },
+    ports: { in: [{ id: 'input', label: 'Input', type: 'any', required: true }], out: [] },
     configSchema: [],
     inspectorTabs: ['Configuration'],
     executable: true,
-    registryState: 'frontend-only',
+    registryState: 'canonical',
     summarize: () => ({ description: 'Inspect workflow output', chips: undefined }),
   },
   {
@@ -486,18 +495,117 @@ const RAW_NODE_DEFINITIONS: Omit<NodeDefinition, 'version' | 'executionMode'>[] 
   },
 ];
 
+const plannedPort = (id: string, label: string, type: PortType, required = false): Port => ({ id, label, type, required });
+const planned = (
+  type: string,
+  label: string,
+  category: NodeCategory,
+  description: string,
+  ports: { in: Port[]; out: Port[] },
+  configSchema: ConfigField[] = [],
+  keywords: string[] = [],
+): NodeDefinition => ({
+  type,
+  version: 1,
+  executionMode: 'planned',
+  label,
+  category,
+  icon: category === 'AI' || category === 'MARKETING' ? 'Sparkles' : category === 'OUTPUT' ? 'Save' : 'Layers',
+  description,
+  keywords: [label.toLowerCase(), ...keywords],
+  ports,
+  configSchema,
+  inspectorTabs: ['Configuration'],
+  executable: false,
+  registryState: 'frontend-only',
+  maturity: 'design-only',
+  summarize: () => ({ description, chips: ['Coming later'] }),
+});
+
+const videoIn = [plannedPort('video', 'Video', 'video', true)];
+const videoOut = [plannedPort('video', 'Video', 'video')];
+const audioIn = [plannedPort('audio', 'Audio', 'audio', true)];
+const audioOut = [plannedPort('audio', 'Audio', 'audio')];
+const select = (key: string, label: string, values: string[], defaultValue = values[0]): ConfigField => ({
+  key, label, type: 'select', default: defaultValue,
+  options: values.map((value) => ({ value, label: value.replace(/(^|[-_])\w/g, (part) => part.replace(/[-_]/, ' ').toUpperCase()) })),
+});
+
+const PLANNED_NODE_DEFINITIONS: NodeDefinition[] = [
+  planned('urlMediaInput', 'URL Media', 'INPUT', 'Reference downloadable media from a URL.', { in: [], out: [plannedPort('media', 'Media', 'media')] }, [
+    { key: 'url', label: 'URL', type: 'text', default: '', placeholder: 'https://…' },
+    select('quality', 'Quality', ['best', '1080p', '720p']),
+  ], ['youtube', 'tiktok', 'download']),
+  planned('batchFolderInput', 'Batch / Folder', 'INPUT', 'Select a folder and produce a batch manifest.', { in: [], out: [plannedPort('items', 'Items', 'json')] }, [
+    { key: 'path', label: 'Folder', type: 'file-picker', pickerMode: 'directory', default: '' },
+    { key: 'recursive', label: 'Include subfolders', type: 'toggle', default: false },
+  ], ['folder', 'batch', 'files']),
+  planned('trimClip', 'Trim Clip', 'VIDEO', 'Cut a video to a precise time range.', { in: videoIn, out: videoOut }, [
+    { key: 'startSeconds', label: 'Start (s)', type: 'number', default: 0, min: 0, step: 0.1 },
+    { key: 'endSeconds', label: 'End (s)', type: 'number', default: 10, min: 0, step: 0.1 },
+  ], ['cut', 'shorts']),
+  planned('smartReframe', 'Smart Reframe', 'VIDEO', 'Reframe video for portrait, square or landscape delivery.', { in: videoIn, out: videoOut }, [
+    select('aspectRatio', 'Aspect ratio', ['9:16', '1:1', '16:9'], '9:16'),
+    select('focus', 'Focus', ['auto', 'center', 'face']),
+  ], ['crop', 'portrait', 'shorts']),
+  planned('resizeCanvas', 'Resize / Canvas', 'VIDEO', 'Resize video and control canvas fit.', { in: videoIn, out: videoOut }, [
+    select('size', 'Canvas', ['1080x1920', '1080x1080', '1920x1080']),
+    select('fit', 'Fit', ['cover', 'contain', 'stretch']),
+  ]),
+  planned('videoConcat', 'Video Concat', 'VIDEO', 'Join a sequence of video clips.', { in: [plannedPort('clips', 'Clips', 'media', true)], out: videoOut }, [select('transition', 'Transition', ['none', 'crossfade'])], ['join', 'combine']),
+  planned('overlay', 'Overlay', 'VIDEO', 'Place an image, video or graphic over a video.', { in: [plannedPort('video', 'Video', 'video', true), plannedPort('overlay', 'Overlay', 'media', true)], out: videoOut }, [select('position', 'Position', ['center', 'top-left', 'top-right', 'bottom-left', 'bottom-right'])]),
+  planned('speedRetime', 'Speed / Retime', 'VIDEO', 'Change playback speed while preserving timing intent.', { in: videoIn, out: videoOut }, [{ key: 'speed', label: 'Speed', type: 'slider', default: 1, min: 0.25, max: 4, step: 0.05 }], ['slow motion', 'timelapse']),
+  planned('extractAudio', 'Extract Audio', 'AUDIO', 'Extract the audio stream from a video.', { in: videoIn, out: audioOut }, [select('format', 'Format', ['wav', 'mp3', 'aac'])]),
+  planned('audioMix', 'Audio Mix', 'AUDIO', 'Mix two audio tracks with explicit levels.', { in: [plannedPort('primary', 'Primary', 'audio', true), plannedPort('secondary', 'Secondary', 'audio', true)], out: audioOut }, [
+    { key: 'primaryVolume', label: 'Primary volume', type: 'slider', default: 1, min: 0, max: 2, step: 0.05 },
+    { key: 'secondaryVolume', label: 'Secondary volume', type: 'slider', default: 0.5, min: 0, max: 2, step: 0.05 },
+  ]),
+  planned('loudnessNormalize', 'Loudness Normalize', 'AUDIO', 'Normalize audio to a target loudness.', { in: audioIn, out: audioOut }, [{ key: 'targetLufs', label: 'Target LUFS', type: 'number', default: -14, min: -24, max: -5, step: 1 }], ['volume', 'lufs']),
+  planned('transcribe', 'Transcribe', 'CAPTIONS', 'Transcribe speech into timestamped text.', { in: audioIn, out: [plannedPort('transcript', 'Transcript', 'json')] }, [select('language', 'Language', ['auto', 'vi', 'en'])], ['speech', 'whisper']),
+  planned('autoCaptions', 'Auto Captions', 'CAPTIONS', 'Turn a transcript into styled caption cues.', { in: [plannedPort('transcript', 'Transcript', 'json', true)], out: [plannedPort('captions', 'Captions', 'json')] }, [
+    select('preset', 'Style', ['clean', 'bold', 'karaoke']),
+    { key: 'maxWords', label: 'Words per cue', type: 'number', default: 6, min: 1, max: 12 },
+  ], ['subtitles', 'shorts']),
+  planned('subtitleBurnIn', 'Burn Subtitles', 'CAPTIONS', 'Render caption cues directly into a video.', { in: [plannedPort('video', 'Video', 'video', true), plannedPort('captions', 'Captions', 'json', true)], out: videoOut }, [select('safeArea', 'Safe area', ['shorts', 'reels', 'tiktok', 'standard'])]),
+  planned('sceneDetect', 'Scene Detect', 'VIDEO', 'Detect shot boundaries and return scene timestamps.', { in: videoIn, out: [plannedPort('scenes', 'Scenes', 'json')] }, [{ key: 'threshold', label: 'Sensitivity', type: 'slider', default: 0.4, min: 0.1, max: 0.9, step: 0.05 }]),
+  planned('clipSelector', 'Clip Selector', 'AI', 'Select promising moments from scenes or a transcript.', { in: [plannedPort('source', 'Source', 'json', true)], out: [plannedPort('clips', 'Clips', 'json')] }, [{ key: 'goal', label: 'Selection goal', type: 'textarea', default: '', placeholder: 'Find strong hooks…' }], ['highlights', 'shorts']),
+  planned('shortComposer', 'Short Composer', 'VIDEO', 'Compose selected clips into a short-form sequence.', { in: [plannedPort('clips', 'Clips', 'json', true)], out: videoOut }, [
+    { key: 'targetSeconds', label: 'Target duration (s)', type: 'number', default: 30, min: 5, max: 180 },
+    select('aspectRatio', 'Aspect ratio', ['9:16', '1:1', '16:9'], '9:16'),
+  ], ['shorts', 'reels']),
+  planned('socialExport', 'Social Export', 'OUTPUT', 'Render a platform-ready social media file.', { in: videoIn, out: [plannedPort('artifact', 'Artifact', 'artifact')] }, [select('platform', 'Platform', ['youtube-shorts', 'tiktok', 'instagram-reels'])], ['shorts', 'reels']),
+  planned('batchRender', 'Batch Render', 'OUTPUT', 'Render every item in a batch manifest.', { in: [plannedPort('items', 'Items', 'json', true)], out: [plannedPort('artifacts', 'Artifacts', 'json')] }, [{ key: 'outputDir', label: 'Output directory', type: 'file-picker', pickerMode: 'directory', default: '' }]),
+  planned('contentBrief', 'Content Brief', 'MARKETING', 'Generate a structured campaign brief.', { in: [plannedPort('input', 'Input', 'any')], out: [plannedPort('brief', 'Brief', 'json')] }, [{ key: 'objective', label: 'Objective', type: 'textarea', default: '' }]),
+  planned('hookGenerator', 'Hook Generator', 'MARKETING', 'Generate multiple opening hooks.', { in: [plannedPort('brief', 'Brief', 'any', true)], out: [plannedPort('hooks', 'Hooks', 'json')] }, [{ key: 'count', label: 'Variants', type: 'number', default: 5, min: 1, max: 20 }], ['shorts']),
+  planned('shortScript', 'Short Script', 'MARKETING', 'Turn a brief and hook into a concise script.', { in: [plannedPort('brief', 'Brief', 'any', true)], out: [plannedPort('script', 'Script', 'text')] }, [{ key: 'durationSeconds', label: 'Target duration (s)', type: 'number', default: 30, min: 5, max: 180 }]),
+  planned('titleCaptionGenerator', 'Title / Caption', 'MARKETING', 'Generate platform-aware titles and captions.', { in: [plannedPort('content', 'Content', 'any', true)], out: [plannedPort('copy', 'Copy', 'json')] }, [select('platform', 'Platform', ['youtube', 'tiktok', 'instagram'])]),
+  planned('hashtagKeywordPack', 'Hashtag / Keywords', 'MARKETING', 'Generate a focused discoverability keyword pack.', { in: [plannedPort('content', 'Content', 'any', true)], out: [plannedPort('keywords', 'Keywords', 'json')] }, [{ key: 'count', label: 'Count', type: 'number', default: 12, min: 3, max: 30 }]),
+  planned('ctaGenerator', 'CTA Generator', 'MARKETING', 'Generate calls to action for a campaign goal.', { in: [plannedPort('content', 'Content', 'any', true)], out: [plannedPort('ctas', 'CTAs', 'json')] }, [select('tone', 'Tone', ['direct', 'friendly', 'urgent'])]),
+  planned('platformVariant', 'Platform Variant', 'MARKETING', 'Adapt copy for several social platforms.', { in: [plannedPort('copy', 'Copy', 'text', true)], out: [plannedPort('variants', 'Variants', 'json')] }, [select('platforms', 'Platforms', ['all', 'youtube', 'tiktok', 'instagram'])]),
+  planned('utmBuilder', 'UTM Builder', 'MARKETING', 'Build a deterministic tracked campaign URL.', { in: [plannedPort('url', 'URL', 'text', true)], out: [plannedPort('url', 'Tracked URL', 'text')] }, [
+    { key: 'source', label: 'Source', type: 'text', default: '' },
+    { key: 'campaign', label: 'Campaign', type: 'text', default: '' },
+  ]),
+  planned('thumbnailCoverBrief', 'Thumbnail / Cover Brief', 'MARKETING', 'Create a visual brief for a cover or thumbnail.', { in: [plannedPort('content', 'Content', 'any', true)], out: [plannedPort('brief', 'Brief', 'json')] }, [select('platform', 'Platform', ['youtube', 'tiktok', 'instagram'])]),
+  planned('publishYouTube', 'Publish YouTube', 'OUTPUT', 'Publish a rendered video to YouTube.', { in: [plannedPort('video', 'Video', 'video', true), plannedPort('metadata', 'Metadata', 'json')], out: [plannedPort('result', 'Result', 'json')] }, [select('privacy', 'Privacy', ['private', 'unlisted', 'public'])], ['shorts']),
+  planned('publishTikTok', 'Publish TikTok', 'OUTPUT', 'Publish a rendered video to TikTok.', { in: [plannedPort('video', 'Video', 'video', true), plannedPort('metadata', 'Metadata', 'json')], out: [plannedPort('result', 'Result', 'json')] }, [select('privacy', 'Privacy', ['private', 'public'])]),
+  planned('publishInstagramReels', 'Publish Instagram Reels', 'OUTPUT', 'Publish a rendered video as an Instagram Reel.', { in: [plannedPort('video', 'Video', 'video', true), plannedPort('metadata', 'Metadata', 'json')], out: [plannedPort('result', 'Result', 'json')] }, [], ['instagram', 'reels']),
+  planned('schedulePublish', 'Schedule Publish', 'MARKETING', 'Schedule a prepared publishing action.', { in: [plannedPort('publication', 'Publication', 'json', true)], out: [plannedPort('schedule', 'Schedule', 'json')] }, [{ key: 'publishAt', label: 'Publish at', type: 'text', default: '', placeholder: '2026-08-14 09:00' }]),
+  planned('analyticsSnapshot', 'Analytics Snapshot', 'MARKETING', 'Fetch a point-in-time performance snapshot.', { in: [plannedPort('publication', 'Publication', 'json', true)], out: [plannedPort('analytics', 'Analytics', 'json')] }, [select('window', 'Window', ['24h', '7d', '30d'])]),
+  planned('compareVariants', 'Compare Variants', 'MARKETING', 'Compare content variants against a chosen metric.', { in: [plannedPort('variants', 'Variants', 'json', true)], out: [plannedPort('comparison', 'Comparison', 'json')] }, [select('metric', 'Metric', ['views', 'watch-time', 'engagement', 'clicks'])]),
+];
+
 /** Runtime Contract V2 metadata is assigned in one place so every node has an
  * explicit schema version and scheduler participation mode. */
-export const NODE_DEFINITIONS: NodeDefinition[] = RAW_NODE_DEFINITIONS.map((definition) => ({
+export const NODE_DEFINITIONS: NodeDefinition[] = [...RAW_NODE_DEFINITIONS.map((definition) => ({
   ...definition,
-  version: 1,
+  version: 2,
   executionMode:
     definition.type === 'markdownNote'
       ? 'annotation'
-      : definition.type === 'preview'
-        ? 'viewer'
-        : 'runtime',
-}));
+      : 'runtime' as ExecutionMode,
+  maturity: 'stable' as const,
+})), ...PLANNED_NODE_DEFINITIONS];
 
 export const NODE_DEFINITION_MAP: Record<string, NodeDefinition> = Object.fromEntries(
   NODE_DEFINITIONS.map((def) => [def.type, def]),

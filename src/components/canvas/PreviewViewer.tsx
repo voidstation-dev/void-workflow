@@ -5,8 +5,10 @@ import {
   AudioLines,
   Video,
   Film,
+  Copy,
   type LucideIcon,
 } from 'lucide-react';
+import { convertFileSrc, isTauri } from '@tauri-apps/api/core';
 import type { PortType } from '@/nodes/registry';
 import { InspectorSection } from '@/components/primitives/InspectorSection';
 import type { PerNodeState } from '@/store/workflowStore';
@@ -119,6 +121,59 @@ function displayValue(value: NodeValue): string {
   return JSON.stringify(value.value, null, 2);
 }
 
+function valuePath(value: NodeValue): { path: string; mime: string | null } | null {
+  if (value.kind === 'file') return { path: value.value.path, mime: value.value.mime };
+  if (value.kind === 'media' || value.kind === 'audio' || value.kind === 'video') {
+    return { path: value.value.path, mime: value.value.mime };
+  }
+  if (value.kind === 'artifact') return { path: value.value.path, mime: value.value.mime };
+  return null;
+}
+
+function RuntimeValue({ port, value }: { port: string; value: NodeValue }) {
+  const reference = valuePath(value);
+  const mime = reference?.mime ?? '';
+  const src = reference && isTauri() ? convertFileSrc(reference.path) : reference?.path;
+  const mediaKind = value.kind === 'audio' || mime.startsWith('audio/')
+    ? 'audio'
+    : value.kind === 'video' || mime.startsWith('video/')
+      ? 'video'
+      : mime.startsWith('image/')
+        ? 'image'
+        : null;
+
+  return (
+    <div className="flex flex-col gap-1.5">
+      <p className="text-[11px] font-medium text-text-muted">{port}</p>
+      {value.kind === 'text' ? (
+        <div className="max-h-72 overflow-auto whitespace-pre-wrap break-words rounded-control bg-surface-input p-2 text-[12px] text-text-secondary">
+          {value.value}
+          <p className="mt-2 text-[10px] text-text-muted">{value.value.length} characters · {value.value.trim() ? value.value.trim().split(/\s+/).length : 0} words</p>
+        </div>
+      ) : value.kind === 'json' || value.kind === 'any' ? (
+        <pre className="max-h-72 overflow-auto whitespace-pre-wrap break-words rounded-control bg-surface-input p-2 text-[12px] text-text-secondary">{JSON.stringify(value.value, null, 2)}</pre>
+      ) : mediaKind === 'image' && src ? (
+        <img src={src} alt="Workflow output preview" className="max-h-80 w-full rounded-control bg-black object-contain" />
+      ) : mediaKind === 'audio' && src ? (
+        <audio src={src} controls className="w-full" aria-label="Workflow audio preview" />
+      ) : mediaKind === 'video' && src ? (
+        <video src={src} controls className="max-h-80 w-full rounded-control bg-black" aria-label="Workflow video preview" />
+      ) : (
+        <pre className="max-h-64 overflow-auto whitespace-pre-wrap break-words rounded-control bg-surface-input p-2 text-[12px] text-text-secondary">{displayValue(value)}</pre>
+      )}
+      {reference && (
+        <button
+          type="button"
+          onClick={() => void navigator.clipboard.writeText(reference.path)}
+          className="flex items-center gap-1 self-start text-[11px] text-text-muted hover:text-text-primary"
+        >
+          <Copy size={12} aria-hidden="true" /> Copy path
+        </button>
+      )}
+    </div>
+  );
+}
+
 export function PreviewViewer({ kind, status, result }: PreviewViewerProps) {
   const Icon = KIND_ICON[kind];
   const label = VIEWER_LABEL[kind];
@@ -138,10 +193,7 @@ export function PreviewViewer({ kind, status, result }: PreviewViewerProps) {
       {result && Object.keys(result.outputs).length > 0 ? (
         <InspectorSection title="Output">
           {Object.entries(result.outputs).map(([port, value]) => (
-            <div key={port} className="flex flex-col gap-1">
-              <p className="text-[11px] font-medium text-text-muted">{port}</p>
-              <pre className="max-h-64 overflow-auto whitespace-pre-wrap break-words rounded-control bg-surface-input p-2 text-[12px] text-text-secondary">{displayValue(value)}</pre>
-            </div>
+            <RuntimeValue key={port} port={port} value={value} />
           ))}
         </InspectorSection>
       ) : result && result.artifacts.length > 0 ? (

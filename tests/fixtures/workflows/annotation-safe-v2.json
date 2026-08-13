@@ -1,0 +1,7 @@
+{
+  "schemaVersion": 2,
+  "nodes": [
+    { "id": "note", "type": "markdownNote", "version": 2, "position": { "x": 40, "y": 80 }, "data": { "label": "Notes", "content": "# Safe annotation" } }
+  ],
+  "edges": []
+}

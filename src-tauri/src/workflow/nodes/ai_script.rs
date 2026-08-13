@@ -1,20 +1,18 @@
 use crate::error::{AppError, Result};
+use crate::runtime::ai::{AiProvider, GenerateRequest, GenerateResponse};
+use crate::runtime::RuntimeServices;
 use crate::workflow::artifact::ArtifactManager;
-use crate::workflow::executor::NodeExecutor;
+use crate::workflow::executor::{NodeExecutor, ProgressReporter};
 use crate::workflow::model::{Node, NodeExecutionResult, NodeInputs, NodeValue};
 use async_trait::async_trait;
 use serde_json::Value;
-use std::env;
 use tokio_util::sync::CancellationToken;
 
 pub struct AIScriptNode;
 
 pub fn interpolate_prompt(mut prompt: String, inputs: &NodeInputs) -> String {
-    for (key, val) in inputs {
-        let val_str = val.as_text();
-
-        let target = format!("{{{{{}}}}}", key); // e.g. {{text}}
-        prompt = prompt.replace(&target, &val_str);
+    for (key, value) in inputs {
+        prompt = prompt.replace(&format!("{{{{{key}}}}}"), &value.as_text());
     }
     prompt
 }
@@ -25,83 +23,92 @@ impl NodeExecutor for AIScriptNode {
         &self,
         node: &Node,
         inputs: &NodeInputs,
-        _cancel_token: CancellationToken,
+        cancel_token: CancellationToken,
         _artifact_manager: &ArtifactManager,
+        runtime: &RuntimeServices,
+        _progress: ProgressReporter,
     ) -> Result<NodeExecutionResult> {
-        let system_prompt = node
-            .data
-            .extra
-            .get("systemInstructions")
-            .or_else(|| node.data.extra.get("system_prompt"))
-            .and_then(Value::as_str)
-            .unwrap_or("");
-        let user_prompt_template = node
-            .data
-            .extra
+        let data = &node.data.extra;
+        let prompt_template = data
             .get("prompt")
-            .or_else(|| node.data.extra.get("user_prompt"))
             .and_then(Value::as_str)
             .unwrap_or("")
             .to_string();
-
-        let user_prompt = interpolate_prompt(user_prompt_template, inputs);
-
-        // For MVP1, we'll try to read from the environment, or fail if not found.
-        let api_key = env::var("GEMINI_API_KEY").map_err(|_| {
-            AppError::Internal("GEMINI_API_KEY environment variable not set".into())
-        })?;
-
-        let url = format!("https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={}", api_key);
-
-        let mut contents = vec![];
-        if !system_prompt.is_empty() {
-            contents.push(serde_json::json!({
-                "role": "user",
-                "parts": [{ "text": format!("System instructions: {}\n\nUser request: {}", system_prompt, user_prompt) }]
-            }));
-        } else {
-            contents.push(serde_json::json!({
-                "role": "user",
-                "parts": [{ "text": user_prompt }]
-            }));
+        let mut prompt = interpolate_prompt(prompt_template, inputs);
+        if !prompt.contains("{{input}}") {
+            if let Some(value) = inputs.get("input") {
+                let upstream = value.as_text();
+                if !upstream.is_empty() {
+                    prompt = if prompt.trim().is_empty() {
+                        upstream
+                    } else {
+                        format!("{prompt}\n\n{upstream}")
+                    };
+                }
+            }
+        }
+        if prompt.trim().is_empty() {
+            return Err(AppError::validation(
+                "AI_PROMPT_EMPTY",
+                "AI Script needs a prompt or upstream input.",
+                serde_json::json!({ "nodeId": node.id }),
+            ));
         }
 
-        let body = serde_json::json!({
-            "contents": contents,
-        });
-
-        let client = reqwest::Client::new();
-        let res = client
-            .post(&url)
-            .header("Content-Type", "application/json")
-            .json(&body)
-            .send()
-            .await
-            .map_err(|e| AppError::Internal(format!("Gemini API request failed: {}", e)))?;
-
-        if !res.status().is_success() {
-            let status = res.status();
-            let text = res.text().await.unwrap_or_default();
-            return Err(AppError::Internal(format!(
-                "Gemini API error ({}): {}",
-                status, text
-            )));
-        }
-
-        let res_json: Value = res
-            .json()
-            .await
-            .map_err(|e| AppError::Internal(format!("Failed to parse Gemini response: {}", e)))?;
-
-        let generated_text = res_json["candidates"][0]["content"]["parts"][0]["text"]
-            .as_str()
-            .unwrap_or("")
+        let output_format = data
+            .get("outputFormat")
+            .and_then(Value::as_str)
+            .unwrap_or("text")
             .to_string();
-
-        Ok(NodeExecutionResult::output(
-            "out",
-            NodeValue::Text(generated_text),
-        ))
+        let schema = data
+            .get("schema")
+            .and_then(Value::as_str)
+            .filter(|value| !value.trim().is_empty())
+            .map(serde_json::from_str)
+            .transpose()
+            .map_err(|error| {
+                AppError::validation(
+                    "AI_SCHEMA_INVALID",
+                    format!("Response schema is not valid JSON: {error}"),
+                    serde_json::json!({ "nodeId": node.id, "field": "schema" }),
+                )
+            })?;
+        let request = GenerateRequest {
+            model: data
+                .get("model")
+                .and_then(Value::as_str)
+                .unwrap_or("gemini-2.5-flash")
+                .to_string(),
+            prompt,
+            system_instructions: data
+                .get("systemInstructions")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_string(),
+            output_format: output_format.clone(),
+            temperature: data
+                .get("temperature")
+                .and_then(Value::as_f64)
+                .unwrap_or(0.7),
+            timeout_seconds: data
+                .get("timeout")
+                .or_else(|| data.get("timeoutSeconds"))
+                .and_then(Value::as_u64)
+                .unwrap_or(60),
+            schema,
+        };
+        let response = runtime
+            .gemini_provider()?
+            .generate(request, cancel_token)
+            .await?;
+        Ok(match response {
+            GenerateResponse::Text(text) => {
+                NodeExecutionResult::output("text", NodeValue::Text(text))
+            }
+            GenerateResponse::Json(value) => {
+                NodeExecutionResult::output("json", NodeValue::Json(value))
+            }
+        })
     }
 }
 
@@ -110,21 +117,12 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_prompt_interpolation_only() {
-        let template =
-            "Hello {{name}}, you are {{age}} years old. Here is your text: {{text}}".to_string();
+    fn prompt_interpolation_uses_port_names() {
         let mut inputs = NodeInputs::new();
-        inputs.insert("name".to_string(), NodeValue::Text("Alice".into()));
-        inputs.insert("age".to_string(), NodeValue::Number(30.0));
-        inputs.insert(
-            "text".to_string(),
-            NodeValue::Text("Some generated text".into()),
-        );
-
-        let result = interpolate_prompt(template, &inputs);
+        inputs.insert("input".into(), NodeValue::Text("Alice".into()));
         assert_eq!(
-            result,
-            "Hello Alice, you are 30 years old. Here is your text: Some generated text"
+            interpolate_prompt("Hello {{input}}".into(), &inputs),
+            "Hello Alice"
         );
     }
 }

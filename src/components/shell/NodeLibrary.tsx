@@ -43,13 +43,17 @@ const LIBRARY_ID = 'node-library-body';
 // for it. Until then flat render is cheaper. Phase 4+ detail.
 
 // Spec §8 category order (adds RULES between AI and MEDIA).
-const CATEGORY_ORDER: NodeCategory[] = ['INPUT', 'TEXT', 'AI', 'RULES', 'MEDIA', 'UTILITY', 'OUTPUT'];
+const CATEGORY_ORDER: NodeCategory[] = ['INPUT', 'TEXT', 'AI', 'RULES', 'VIDEO', 'AUDIO', 'CAPTIONS', 'MEDIA', 'MARKETING', 'UTILITY', 'OUTPUT'];
 const DEFAULT_COLLAPSE: Record<NodeCategory, boolean> = {
   INPUT: false, // expanded by default (spec §9 example)
   TEXT: false,
   AI: false,
   RULES: true, // empty for now — collapsed by default
+  VIDEO: true,
+  AUDIO: true,
+  CAPTIONS: true,
   MEDIA: false,
+  MARKETING: true,
   UTILITY: true, // collapsed by default (spec §9 groups RULES/UTILITY)
   OUTPUT: false, // expanded by default (spec §9 example)
 };
@@ -106,7 +110,7 @@ export function NodeLibrary() {
 
   const grouped = useMemo(() => {
     const g: Record<NodeCategory, NodeDefinition[]> = {
-      INPUT: [], TEXT: [], AI: [], RULES: [], MEDIA: [], UTILITY: [], OUTPUT: [],
+      INPUT: [], TEXT: [], AI: [], RULES: [], VIDEO: [], AUDIO: [], CAPTIONS: [], MEDIA: [], MARKETING: [], UTILITY: [], OUTPUT: [],
     };
     for (const d of filtered) g[d.category].push(d);
     return g;

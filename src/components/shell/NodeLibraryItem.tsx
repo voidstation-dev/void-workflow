@@ -30,7 +30,7 @@ export interface NodeLibraryItemProps {
   onKeyDown: (e: KeyboardEvent<HTMLDivElement>) => void;
 }
 
-type Badge = 'note' | 'not-executable' | null;
+type Badge = 'note' | 'not-executable' | 'planned' | null;
 
 export function NodeLibraryItem({ def, onKeyDown }: NodeLibraryItemProps) {
   const Icon = getNodeIcon(def.icon);
@@ -39,6 +39,8 @@ export function NodeLibraryItem({ def, onKeyDown }: NodeLibraryItemProps) {
   const badge: Badge =
     def.type === 'markdownNote'
       ? 'note'
+      : def.executionMode === 'planned'
+        ? 'planned'
       : def.registryState === 'frontend-only' && def.executionMode === 'runtime'
         ? 'not-executable'
         : null;
@@ -87,6 +89,11 @@ export function NodeLibraryItem({ def, onKeyDown }: NodeLibraryItemProps) {
             title="This node type has no backend handler and cannot run yet."
           >
             <TriangleAlert size={10} aria-hidden="true" />
+          </span>
+        )}
+        {badge === 'planned' && (
+          <span className="shrink-0 rounded-full bg-surface-hover px-1.5 py-0.5 text-[9px] text-text-muted">
+            Later
           </span>
         )}
 

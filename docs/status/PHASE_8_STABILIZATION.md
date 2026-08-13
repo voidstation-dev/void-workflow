@@ -16,7 +16,9 @@ Progress: 100%
 
 ## Current Work
 
-Phase 8 completed. MVP1 is officially finished.
+Phase 8 completed the historical prototype. Runtime V2 is the active stabilized
+milestone and adds contract fixtures, frontend tests, Rust tests, and strict
+clippy verification.
 
 ## Blockers
 

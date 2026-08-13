@@ -1,11 +1,11 @@
-import { useEffect, useRef, useCallback } from 'react';
+import { useEffect, useRef, useCallback, useMemo } from 'react';
 import { invoke, isTauri } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { v4 as uuidv4 } from 'uuid';
 import { useWorkflowStore, deriveProblems } from '@/store/workflowStore';
 import { NODE_DEFINITION_MAP } from '@/nodes/registry';
-import { serializeWorkflowGraph, type NodeExecutionResult } from '@/nodes/runtimeContract';
+import { normalizeAppError, serializeWorkflowGraph, type EnvironmentHealth, type NodeExecutionResult, type RuntimeSettings, type ValidationReport } from '@/nodes/runtimeContract';
 
 /**
  * useWorkflowController — the ONLY imperative Tauri writer (spec §2.2).
@@ -55,12 +55,21 @@ export interface WorkflowController {
   run: () => Promise<void>;
   stop: () => Promise<void>;
   openFolder: () => Promise<void>;
+  getRuntimeSettings: () => Promise<RuntimeSettings>;
+  updateRuntimeSettings: (settings: RuntimeSettings) => Promise<RuntimeSettings>;
+  setGeminiApiKey: (apiKey: string) => Promise<void>;
+  clearGeminiApiKey: () => Promise<void>;
+  refreshEnvironment: () => Promise<EnvironmentHealth | null>;
   pushToast: (toast: { kind: 'success' | 'info' | 'error'; title: string; description?: string }) => void;
   dismissToast: (id: string) => void;
   announce: (text: string) => void;
 }
 
 const announceReady = (last: number) => Date.now() - last >= 1000;
+const errorDescription = (error: unknown) => {
+  const payload = normalizeAppError(error);
+  return payload.hint ? `${payload.message} ${payload.hint}` : payload.message;
+};
 
 export function useWorkflowController(): WorkflowController {
   const store = useWorkflowStore;
@@ -91,6 +100,45 @@ export function useWorkflowController(): WorkflowController {
     timersRef.current = timersRef.current.filter((x) => x !== t);
   };
 
+  const refreshEnvironment = useCallback<WorkflowController['refreshEnvironment']>(async () => {
+    if (!isTauri()) return null;
+    try {
+      const report = await invoke<EnvironmentHealth>('probe_environment');
+      store.getState().setHealth({
+        backend: report.backend.state,
+        sqlite: report.sqlite.state,
+        storage: report.storage.state,
+        ffmpeg: report.ffmpeg.state,
+        ffprobe: report.ffprobe.state,
+        gemini: report.gemini.state,
+      });
+      return report;
+    } catch (error) {
+      store.getState().setHealth({ backend: 'down' });
+      return null;
+    }
+  }, [store]);
+
+  const getRuntimeSettings = useCallback<WorkflowController['getRuntimeSettings']>(async () => {
+    return invoke<RuntimeSettings>('get_runtime_settings');
+  }, []);
+
+  const updateRuntimeSettings = useCallback<WorkflowController['updateRuntimeSettings']>(async (settings) => {
+    const updated = await invoke<RuntimeSettings>('update_runtime_settings', { settings });
+    await refreshEnvironment();
+    return updated;
+  }, [refreshEnvironment]);
+
+  const setGeminiApiKey = useCallback<WorkflowController['setGeminiApiKey']>(async (apiKey) => {
+    await invoke('set_gemini_api_key', { apiKey });
+    await refreshEnvironment();
+  }, [refreshEnvironment]);
+
+  const clearGeminiApiKey = useCallback<WorkflowController['clearGeminiApiKey']>(async () => {
+    await invoke('clear_gemini_api_key');
+    await refreshEnvironment();
+  }, [refreshEnvironment]);
+
   const init = useCallback<WorkflowController['init']>(async () => {
     // Keep the Vite web preview usable for visual QA. Native persistence and
     // execution remain Tauri-only; the browser simply keeps the in-memory graph.
@@ -104,13 +152,15 @@ export function useWorkflowController(): WorkflowController {
       const graphJson = await invoke<string>('load_workflow', { projectId: store.getState().projectId });
       const parsed = JSON.parse(graphJson) as { nodes: any[]; edges: any[] };
       store.getState().replaceGraph({ nodes: parsed.nodes || [], edges: parsed.edges || [] });
+      await refreshEnvironment();
       announce('Workflow loaded');
     } catch (err) {
+      const error = normalizeAppError(err);
       store.getState().setHealth({ backend: 'down' });
-      pushToast({ kind: 'error', title: 'Failed to initialize project', description: `${String(err)} — check the backend connection and retry.` });
+      pushToast({ kind: 'error', title: error.title, description: errorDescription(err) });
       announce('Initialization failed');
     }
-  }, [store, announce, pushToast]);
+  }, [store, announce, pushToast, refreshEnvironment]);
 
   const save = useCallback<WorkflowController['save']>(async () => {
     const state = store.getState();
@@ -128,8 +178,9 @@ export function useWorkflowController(): WorkflowController {
       }, 2500);
       addTimer(t);
     } catch (err) {
-      store.getState().setSaveError(String(err));
-      pushToast({ kind: 'error', title: 'Failed to save workflow', description: `${String(err)} — check the backend connection and retry.` });
+      const error = normalizeAppError(err);
+      store.getState().setSaveError(error.message);
+      pushToast({ kind: 'error', title: error.title, description: errorDescription(err) });
     }
   }, [store, pushToast]);
 
@@ -154,9 +205,21 @@ export function useWorkflowController(): WorkflowController {
       return;
     }
 
-    state.setRunStarting();
     try {
       const graphJson = JSON.stringify(serializeWorkflowGraph(state.nodes, state.edges));
+      const validation = await invoke<ValidationReport>('validate_workflow', { graphJson });
+      store.getState().setProblems(validation.problems);
+      if (!validation.valid) {
+        store.getState().setDockTab('problems');
+        pushToast({
+          kind: 'error',
+          title: 'Workflow needs attention',
+          description: `${validation.problems.length} problem${validation.problems.length === 1 ? '' : 's'} must be fixed before this workflow can run.`,
+        });
+        announce('Run blocked: workflow validation failed');
+        return;
+      }
+      state.setRunStarting();
       const runId = await invoke<number>('start_run', { projectId: state.projectId, graphJson });
       // A very fast workflow can deliver its terminal backend event before
       // the command promise resolves. Never overwrite that authoritative state.
@@ -165,8 +228,9 @@ export function useWorkflowController(): WorkflowController {
       }
       announce('Run started');
     } catch (err) {
-      store.getState().setRunTerminal('failed', String(err));
-      pushToast({ kind: 'error', title: 'Failed to start workflow', description: `${String(err)} — check the backend connection and retry.` });
+      const error = normalizeAppError(err);
+      store.getState().setRunTerminal('failed', error.message);
+      pushToast({ kind: 'error', title: error.title, description: errorDescription(err) });
       announce('Run failed to start');
     }
   }, [store, pushToast, announce]);
@@ -179,7 +243,8 @@ export function useWorkflowController(): WorkflowController {
       pushToast({ kind: 'info', title: 'Cancellation requested' });
       announce('Cancellation requested');
     } catch (err) {
-      pushToast({ kind: 'error', title: 'Failed to cancel workflow', description: `${String(err)} — check the backend connection and retry.` });
+      const error = normalizeAppError(err);
+      pushToast({ kind: 'error', title: error.title, description: errorDescription(err) });
     }
   }, [store, pushToast, announce]);
 
@@ -194,7 +259,8 @@ export function useWorkflowController(): WorkflowController {
       // last-completed run id from runSlice.
       await invoke('open_run_folder', { runId: lastCompletedRunId });
     } catch (err) {
-      pushToast({ kind: 'error', title: 'Failed to open folder', description: `${String(err)} — check the backend connection and retry.` });
+      const error = normalizeAppError(err);
+      pushToast({ kind: 'error', title: error.title, description: errorDescription(err) });
     }
   }, [store, pushToast]);
 
@@ -333,5 +399,19 @@ export function useWorkflowController(): WorkflowController {
     };
   }
 
-  return { init, save, run, stop, openFolder, pushToast, dismissToast, announce };
+  return useMemo(() => ({
+    init,
+    save,
+    run,
+    stop,
+    openFolder,
+    getRuntimeSettings,
+    updateRuntimeSettings,
+    setGeminiApiKey,
+    clearGeminiApiKey,
+    refreshEnvironment,
+    pushToast,
+    dismissToast,
+    announce,
+  }), [init, save, run, stop, openFolder, getRuntimeSettings, updateRuntimeSettings, setGeminiApiKey, clearGeminiApiKey, refreshEnvironment, pushToast, dismissToast, announce]);
 }

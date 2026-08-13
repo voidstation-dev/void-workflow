@@ -4,78 +4,103 @@ Last updated: 2026-08-14
 
 ## Phase
 
-Runtime Contract V2 — Phase 0 baseline plus Phase 1 (plan phases C0–C2).
+Runtime Contract V2 and roadmap phases C0–C3, N1–N6, Short Video UI expansion,
+and Marketing UI expansion.
 
 ## Status
 
-DONE for the requested Runtime Contract V2 scope. Node-by-node reconciliation,
-runtime services, rich media previews, and Short Video/Marketing backends are
-not part of this phase.
+DONE for every executable node and UI-only phase defined by the implementation
+plan. Future Short Video and Marketing nodes intentionally remain design-only:
+the product brief explicitly forbids adding their backend executors in this
+milestone.
 
-## Contract changes
+## Runtime and graph contract
 
-- Workflow JSON is normalized to `schemaVersion: 2` on save, load, and run.
-- Edges preserve `sourceHandle` and `targetHandle` through React Flow, JSON,
-  Rust deserialization, graph compilation, and scheduler input resolution.
-- Legacy graphs without handles migrate only when a node side has exactly one
-  declared compatible port. Ambiguous migrations fail explicitly; port order,
-  map order, and upstream UUIDs are never used as input names.
-- Executors receive typed `NodeInputs` keyed by target port and return
-  `NodeExecutionResult` containing typed `NodeValue` outputs, `ArtifactRef`s,
-  metadata, and warnings.
-- Registry definitions now include node version and execution mode. Markdown
-  Note (`annotation`) and Preview (`viewer`) remain persisted in the canvas but
-  are excluded from the executable DAG.
-- Backend emits `run-started`, `node-started`, `node-progress`, `node-result`,
-  `node-failed`, `node-skipped`, terminal run events, and the consolidated
-  authoritative `run-status` event.
-- Frontend no longer infers run completion from the set of nodes seen so far.
-  It filters events by run ID, stores real results, and renders them in Output
-  and Preview surfaces.
-- SQLite now stores serialized node results and queryable artifact references.
+- Workflow and node configs are versioned. Graph v1 nodes and their legacy
+  handles/config keys migrate deterministically to graph/node v2.
+- React Flow position and other editor metadata survive backend save/load
+  normalization.
+- Backend validation aggregates structured, actionable Problems for schema,
+  node versions, missing executors, ports, types, cardinality, required inputs,
+  planned nodes, and cycles.
+- Typed `NodeValue`, target-port-keyed `NodeInputs`, `NodeExecutionResult`, and
+  `ArtifactRef` flow through the scheduler, events, SQLite, Zustand, Preview,
+  and the Artifacts dock.
+- Run completion and cancellation are backend-owned; the frontend never infers
+  terminal state from whichever node event happened to arrive first.
+- Runtime concurrency is bounded by the configured semaphore and long-running
+  network/media work is cancellation-aware.
 
-## Files changed
+## Runtime services
 
-- Rust runtime: `src-tauri/src/workflow/{model,graph,executor,artifact}.rs`, node
-  executors, registry wiring, Tauri commands, errors, and database migrations.
-- Frontend contract/consumer: `src/nodes/{registry,runtimeContract}.ts`,
-  `src/store/workflowStore.ts`, `src/hooks/useWorkflowController.ts`, and the
-  generic Output/Preview components.
-- Shared verification: `contracts/node-runtime-contract.json` and
-  `tests/fixtures/workflow-v1/single-port.json`.
+- Native Tauri file/folder dialog is wired into generic property rows.
+- Runtime settings persist output directory, FFmpeg/FFprobe paths, and bounded
+  concurrency. API keys are never written to settings JSON.
+- Gemini credentials use the operating-system credential vault with an
+  environment-variable fallback for development.
+- Environment probes report backend, SQLite, storage, FFmpeg, FFprobe, and
+  Gemini state with real details.
+- Gemini requests live behind an `AiProvider` adapter with selected model,
+  system instructions, temperature, timeout, cancellation, JSON response mode,
+  basic required-field schema validation, and a structured error taxonomy.
+- FFmpeg/FFprobe process ownership is centralized. The FFmpeg runner consumes
+  machine-readable progress, kills the child on cancellation, and returns
+  structured failures.
+- Artifact destinations sanitize filenames and support deterministic rename,
+  overwrite, and skip collision policies.
+
+## Current nodes
+
+- Text Input: canonical `content` config and `text` port.
+- Text Transform: trim, uppercase, lowercase, and validated literal replace.
+- Delay: bounded seconds, cancellation, and typed pass-through.
+- Local File: native picker, canonical path, regular-file validation,
+  canonical path, size, filename, and MIME hint.
+- Media Info: centralized FFprobe plus normalized summary/video/audio/raw data,
+  pass-through media, and frontend result views.
+- Save Text / Save JSON: exact typed input, output directory, formatting,
+  collision policy, artifact registration, and artifact output.
+- Save Artifact: canonical copy executor with cancellation, collision policy,
+  MIME/kind inference, registration, and artifact output.
+- AI Script: canonical Gemini provider flow with typed text/JSON outputs.
+- Media Merge: explicit `video` + optional `audio` inputs, replace/mix mapping,
+  duration/resolution/FPS/codec/bitrate config, progress, cancellation, and
+  typed video/artifact result.
+- Preview: canonical capture executor; text/JSON/image/audio/video/path results
+  render through the shared Preview UI using Tauri asset URLs.
+- Markdown Note: persists as an annotation and never enters the runtime DAG.
+
+## Expansion UI
+
+- 19 Short Video and 15 Marketing nodes are searchable and grouped into Input,
+  AI, Video, Audio, Captions, Marketing, and Output categories.
+- Every expansion node has a compact schema, typed ports, `design-only`
+  maturity, `planned` execution mode, and a visible “Later” marker.
+- Planned nodes are saveable for design exploration but immediately produce a
+  `PLANNED_NODE_UNAVAILABLE` Problem and cannot run. No fake executor exists.
 
 ## Tests
 
-Baseline before edits:
+Baseline before Runtime Contract V2: frontend build passed; Rust 5 tests passed.
 
+Current verification:
+
+- `npm test` — PASS (contract, migration serialization, planned-node maturity,
+  and media compatibility assertions).
 - `npm run build` — PASS.
 - `cargo check` — PASS.
-- `cargo test` — PASS (5 tests).
+- `cargo test` — PASS (graph migration/validation, contract parity, error
+  payload, runtime settings, AI schema, FFmpeg progress, artifact collision,
+  current node behavior, and v2 smoke fixtures).
+- `cargo clippy --all-targets --all-features -- -D warnings` — PASS.
+- Smoke fixtures cover Text → Transform → Preview, annotation-only safety, and
+  explicit video/audio multi-port routing.
 
-Runtime Contract V2 verification:
+## Remaining product work
 
-- `npm run build` — PASS.
-- `cargo check` — PASS.
-- `cargo test` — PASS (11 tests after migration/contract additions).
-- Shared registry fixture is asserted by Rust tests and by the frontend module
-  when the application initializes.
-
-## Remaining gaps
-
-- Backend validation still returns command errors rather than the planned
-  structured Problems DTO.
-- Per-executor invalid-config/failure/cancellation coverage is incomplete and
-  belongs to the node reconciliation phases.
-- Config aliases preserve existing graphs (`text`/`content`,
-  `duration`/`seconds`, `file_path`/`path`, AI snake/camel case), but full config
-  normalization and node-version migrations remain Phase 2+ work.
-- Preview can show typed text/JSON/path/artifact data, but native media URL
-  conversion and players remain later runtime-service work.
-- No Short Video or Marketing backend was added.
-
-## Discrepancy notes
-
-Earlier MVP1 status documents described prototype/UI milestones as complete.
-Those remain valid historical milestones, but they are not evidence that the
-production runtime contract or every node backend is complete. Runtime Contract
-V2 is the active architecture milestone.
+- Publishing integrations and executable Short Video/Marketing processors are
+  deliberately deferred. They require provider credentials, platform review,
+  upload resumability, and node-specific engines; the current milestone only
+  authorizes their architecture/schema/UI.
+- Full live-provider and real-media E2E tests remain environment-dependent.
+  Deterministic request/argument/schema/parser tests cover the local contract.

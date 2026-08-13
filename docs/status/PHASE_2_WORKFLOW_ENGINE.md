@@ -46,7 +46,8 @@ Passed:
 - Scheduler properly spawns Tokio tasks.
 
 Missing:
-- E2E invocation of Scheduler from React Flow.
+- Historical note only. Runtime V2 now covers typed port routing, graph fixtures,
+  authoritative validation, result events, cancellation, and terminal run state.
 
 ## Exit Criteria
 

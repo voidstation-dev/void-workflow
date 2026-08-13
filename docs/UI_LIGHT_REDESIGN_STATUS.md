@@ -238,7 +238,9 @@
 **What shipped:**
 - **Runs route** ([HistoryScreen.tsx](src/components/screens/HistoryScreen.tsx)) — the screen is now labeled "Runs" (`PanelHeader title="Runs"`, `data-screen="runs"`, `ariaLabel="Runs"`) to match the `WorkflowTabs` "Runs" label (Alt+3). Runs are grouped Today / Earlier (spec §16) via `<th scope="rowgroup" colSpan>` divider rows with a count; the "Started" column shows `toLocaleTimeString()` (date is implied by the group header). Row click → `setDockTab('run')` (dock expands). Component/file name kept (`HistoryScreen`) per §40. Empty state preserved.
 - **KeyboardHelpDialog refresh** ([KeyboardHelpDialog.tsx](src/components/shell/KeyboardHelpDialog.tsx)) — the stale shortcut table (App Rail, Projects/History, Ctrl+Shift+B, separate Library/Inspector toggles) is corrected: Alt+1..4 = Workflow/Settings/Runs/Environment; Ctrl/Cmd+B & I = toggle right panel; added Ctrl/Cmd+Z / Ctrl/Cmd+Shift+Z = Undo/Redo (graph); removed Ctrl/Cmd+Shift+B.
-- **BottomDock** — audited: Console/Problems/Run/Artifacts tabs are already light-token-based (Phase 1 retargeted all utilities); Artifacts is honest (`ArtifactsPanel` shows "Open Output Folder" via `controller.openFolder` + a muted gap note "no backend artifacts-list IPC exists"; no fake per-file rows — honest-gap principle preserved).
+- **BottomDock** — Console/Problems/Run/Artifacts tabs remain light-token-based.
+  Runtime V2 now populates the artifact list from typed node-result events and
+  provides Copy Path alongside Open Output Folder.
 - **WorkflowHeader Retry/Open Output** — already shipped Phase 2: `showRetry` (runStatus==='failed') → "Retry Failed" button calling `controller.run()` (a full re-run via `start_run`, always fresh — no resume IPC); `showOpenOutput` (runStatus==='succeeded' && lastCompletedRunId) → prominent "Open Output" calling `controller.openFolder()`.
 
 **Verification gate (green):**

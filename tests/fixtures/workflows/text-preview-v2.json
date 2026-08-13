@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 2,
+  "nodes": [
+    { "id": "source", "type": "textInput", "version": 2, "position": { "x": 0, "y": 0 }, "data": { "label": "Text", "content": " hello " } },
+    { "id": "trim", "type": "textTransform", "version": 2, "position": { "x": 240, "y": 0 }, "data": { "label": "Trim", "operation": "trim" } },
+    { "id": "preview", "type": "preview", "version": 2, "position": { "x": 480, "y": 0 }, "data": { "label": "Preview" } }
+  ],
+  "edges": [
+    { "id": "source-trim", "source": "source", "sourceHandle": "text", "target": "trim", "targetHandle": "text" },
+    { "id": "trim-preview", "source": "trim", "sourceHandle": "text", "target": "preview", "targetHandle": "input" }
+  ]
+}

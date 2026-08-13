@@ -258,8 +258,12 @@ export type ProblemSeverity = 'error' | 'warning';
 export interface Problem {
   id: string;
   severity: ProblemSeverity;
+  code?: string;
+  title?: string;
   nodeId: string | null;
+  edgeId?: string | null;
   message: string;
+  hint?: string | null;
 }
 export interface ProblemsSlice {
   problems: Problem[];
@@ -426,6 +430,17 @@ export function deriveProblems(state: WorkflowState): Problem[] {
         severity: 'warning',
         nodeId: node.id,
         message: `Node type "${def.type}" is not registered in the backend and cannot run.`,
+      });
+    }
+    if (def.executionMode === 'planned') {
+      problems.push({
+        id: `planned-${node.id}`,
+        severity: 'error',
+        code: 'PLANNED_NODE_UNAVAILABLE',
+        title: 'Node is available for design only',
+        nodeId: node.id,
+        message: `${def.label} is marked Coming later and has no runtime executor.`,
+        hint: 'Remove the planned node before running this workflow.',
       });
     }
   }

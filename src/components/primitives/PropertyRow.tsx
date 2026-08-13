@@ -1,4 +1,6 @@
 import { useId, type ReactNode } from 'react';
+import { isTauri } from '@tauri-apps/api/core';
+import { open } from '@tauri-apps/plugin-dialog';
 import { cn } from '@/lib/utils';
 
 /**
@@ -26,7 +28,7 @@ import { cn } from '@/lib/utils';
  */
 export interface PropertyRowProps {
   label: string;
-  type?: 'text' | 'textarea' | 'number' | 'select' | 'toggle' | 'slider' | 'file';
+  type?: 'text' | 'password' | 'textarea' | 'number' | 'select' | 'toggle' | 'slider' | 'file';
   value: string | number | boolean;
   onChange: (v: string | number | boolean) => void;
   options?: { label: string; value: string }[];
@@ -41,6 +43,7 @@ export interface PropertyRowProps {
   unit?: string;
   id?: string;
   ariaLabel?: string;
+  pickerMode?: 'file' | 'directory';
 }
 
 export function PropertyRow({
@@ -60,6 +63,7 @@ export function PropertyRow({
   unit,
   id,
   ariaLabel,
+  pickerMode = 'file',
 }: PropertyRowProps) {
   const autoId = useId();
   const fieldId = id ?? autoId;
@@ -151,10 +155,11 @@ export function PropertyRow({
       />
     );
   } else if (type === 'file') {
-    // file-picker: a path text input + a Browse button. The native dialog is a
-    // backend bridge (Tauri) not wired in Phase 6, so Browse is disabled with a
-    // tooltip; the path input keeps the node usable. Spec §11.7 "button + path
-    // display". fileInput is canonical but NOT one of the 3 validation nodes.
+    const browseDisabled = disabled || !isTauri();
+    const browse = async () => {
+      const selected = await open({ directory: pickerMode === 'directory', multiple: false });
+      if (typeof selected === 'string') onChange(selected);
+    };
     control = (
       <div className="flex items-center gap-2">
         <input
@@ -167,9 +172,10 @@ export function PropertyRow({
         />
         <button
           type="button"
-          disabled
-          aria-disabled="true"
-          title="File dialog not available yet"
+          disabled={browseDisabled}
+          aria-disabled={browseDisabled || undefined}
+          title={!isTauri() ? 'Native file dialog is available in the desktop app' : undefined}
+          onClick={() => void browse()}
           className="h-7 shrink-0 rounded-control border border-border-subtle bg-surface-panel px-2 text-[11px] text-text-muted"
         >
           Browse…
@@ -191,10 +197,9 @@ export function PropertyRow({
       />
     );
   } else {
-    // text
     control = (
       <input
-        type="text"
+        type={type === 'password' ? 'password' : 'text'}
         {...sharedInputProps}
         value={value as string}
         placeholder={placeholder}

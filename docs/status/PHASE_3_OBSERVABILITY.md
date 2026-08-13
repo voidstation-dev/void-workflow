@@ -46,7 +46,8 @@ Passed:
 - UI successfully connects and emits valid run commands to Rust.
 
 Missing:
-- Advanced run history sidebar UI (Deferred to later polishing if needed, but the foundation is solid).
+- Historical note only. Runtime V2 now persists typed node results/artifacts and
+  drives the current History, Run, Problems, Preview, and Artifacts surfaces.
 
 ## Exit Criteria
 

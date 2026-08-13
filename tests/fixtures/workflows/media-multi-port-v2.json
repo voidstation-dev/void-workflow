@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 2,
+  "nodes": [
+    { "id": "video", "type": "fileInput", "version": 2, "position": { "x": 0, "y": 0 }, "data": { "label": "Video", "path": "/tmp/video.mp4" } },
+    { "id": "audio", "type": "fileInput", "version": 2, "position": { "x": 0, "y": 180 }, "data": { "label": "Audio", "path": "/tmp/audio.wav" } },
+    { "id": "merge", "type": "mediaMerge", "version": 2, "position": { "x": 280, "y": 80 }, "data": { "label": "Merge", "audioMode": "replace", "duration": "shortest", "resolution": "source", "fps": "source", "videoCodec": "h264", "audioCodec": "aac", "bitrate": "auto" } },
+    { "id": "preview", "type": "preview", "version": 2, "position": { "x": 560, "y": 80 }, "data": { "label": "Preview" } }
+  ],
+  "edges": [
+    { "id": "video-merge", "source": "video", "sourceHandle": "file", "target": "merge", "targetHandle": "video" },
+    { "id": "audio-merge", "source": "audio", "sourceHandle": "file", "target": "merge", "targetHandle": "audio" },
+    { "id": "merge-preview", "source": "merge", "sourceHandle": "video", "target": "preview", "targetHandle": "input" }
+  ]
+}

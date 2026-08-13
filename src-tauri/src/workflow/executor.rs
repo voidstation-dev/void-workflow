@@ -2,13 +2,14 @@ use super::artifact::ArtifactManager;
 use super::graph::ExecutableGraph;
 use super::model::{Node, NodeExecutionResult, NodeInputs, NodeState};
 use crate::error::{AppError, Result};
+use crate::runtime::RuntimeServices;
 use async_trait::async_trait;
 use serde::Serialize;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::Instant;
 use tauri::{AppHandle, Emitter, Manager};
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, Semaphore};
 use tokio_util::sync::CancellationToken;
 
 #[derive(Clone, Serialize)]
@@ -64,14 +65,19 @@ pub trait NodeExecutor: Send + Sync {
         inputs: &NodeInputs,
         cancel_token: CancellationToken,
         artifact_manager: &ArtifactManager,
+        runtime: &RuntimeServices,
+        progress: ProgressReporter,
     ) -> Result<NodeExecutionResult>;
 }
+
+pub type ProgressReporter = Arc<dyn Fn(f32) + Send + Sync>;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ExecutionMode {
     Execute,
     Annotation,
     Viewer,
+    Planned,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -99,14 +105,46 @@ pub struct NodeSpec {
 
 impl NodeSpec {
     pub fn execute(inputs: &[(&str, PortKind)], outputs: &[(&str, PortKind)]) -> Self {
+        Self::execute_v2(
+            inputs,
+            outputs,
+            &inputs.iter().map(|(id, _)| *id).collect::<Vec<_>>(),
+        )
+    }
+
+    pub fn execute_v2(
+        inputs: &[(&str, PortKind)],
+        outputs: &[(&str, PortKind)],
+        required_inputs: &[&str],
+    ) -> Self {
         Self {
-            version: 1,
+            version: 2,
             execution_mode: ExecutionMode::Execute,
             inputs: inputs
                 .iter()
                 .map(|(id, kind)| ((*id).into(), *kind))
                 .collect(),
-            required_inputs: inputs.iter().map(|(id, _)| (*id).into()).collect(),
+            required_inputs: required_inputs.iter().map(|id| (*id).into()).collect(),
+            outputs: outputs
+                .iter()
+                .map(|(id, kind)| ((*id).into(), *kind))
+                .collect(),
+        }
+    }
+
+    pub fn planned(
+        inputs: &[(&str, PortKind)],
+        outputs: &[(&str, PortKind)],
+        required_inputs: &[&str],
+    ) -> Self {
+        Self {
+            version: 1,
+            execution_mode: ExecutionMode::Planned,
+            inputs: inputs
+                .iter()
+                .map(|(id, kind)| ((*id).into(), *kind))
+                .collect(),
+            required_inputs: required_inputs.iter().map(|id| (*id).into()).collect(),
             outputs: outputs
                 .iter()
                 .map(|(id, kind)| ((*id).into(), *kind))
@@ -171,6 +209,7 @@ pub struct Scheduler {
     app_handle: AppHandle,
     run_id: i64,
     artifact_manager: ArtifactManager,
+    semaphore: Arc<Semaphore>,
 }
 
 impl Scheduler {
@@ -181,13 +220,15 @@ impl Scheduler {
         run_id: i64,
     ) -> Result<Self> {
         let state = app_handle.state::<crate::AppState>();
-        let artifact_manager = ArtifactManager::new(&state.app_dir, run_id)?;
+        let artifact_manager = ArtifactManager::new_in(&state.runtime.output_root(), run_id)?;
+        let semaphore = Arc::new(Semaphore::new(state.runtime.settings().concurrency));
         Ok(Self {
             graph,
             registry,
             app_handle,
             run_id,
             artifact_manager,
+            semaphore,
         })
     }
 
@@ -345,6 +386,21 @@ impl Scheduler {
         let inputs_result = self.resolve_inputs(&node_id, outputs);
         let registry = self.registry.clone();
         let artifact_manager = self.artifact_manager.clone();
+        let runtime = self.app_handle.state::<crate::AppState>().runtime.clone();
+        let semaphore = self.semaphore.clone();
+        let progress_app = self.app_handle.clone();
+        let progress_node_id = node_id.clone();
+        let progress_run_id = self.run_id;
+        let progress: ProgressReporter = Arc::new(move |value| {
+            let _ = progress_app.emit(
+                "node-progress",
+                NodeProgressEvent {
+                    run_id: progress_run_id,
+                    node_id: progress_node_id.clone(),
+                    progress: value.clamp(0.0, 1.0),
+                },
+            );
+        });
         self.emit_node_status(&node_id, "running", None);
         let _ = self.app_handle.emit(
             "node-progress",
@@ -374,9 +430,27 @@ impl Scheduler {
                 }
                 Ok(inputs) => match registry.get(&node.node_type) {
                     Some(executor) => {
-                        executor
-                            .execute(&node, &inputs, cancel_token, &artifact_manager)
-                            .await
+                        let permit_result = tokio::select! {
+                            permit = semaphore.acquire_owned() => permit.map_err(|_| AppError::Internal("Runtime concurrency limiter closed.".into())),
+                            _ = cancel_token.cancelled() => Err(AppError::Cancelled("Workflow cancelled while waiting to execute.".into())),
+                        };
+                        match permit_result {
+                            Ok(permit) => {
+                                let result = executor
+                                    .execute(
+                                        &node,
+                                        &inputs,
+                                        cancel_token,
+                                        &artifact_manager,
+                                        &runtime,
+                                        progress,
+                                    )
+                                    .await;
+                                drop(permit);
+                                result
+                            }
+                            Err(error) => Err(error),
+                        }
                     }
                     None => Err(AppError::Internal(format!(
                         "No executor for {}",
@@ -551,13 +625,21 @@ mod tests {
         ))
         .unwrap();
         let object = fixture.as_object().unwrap();
-        assert_eq!(object.len(), crate::workflow::REGISTRY.specs().len());
+        assert_eq!(
+            object.len(),
+            crate::workflow::REGISTRY
+                .specs()
+                .values()
+                .filter(|spec| spec.execution_mode != ExecutionMode::Planned)
+                .count()
+        );
         for (node_type, expected) in object {
             let spec = crate::workflow::REGISTRY.spec(node_type).unwrap();
             let mode = match spec.execution_mode {
                 ExecutionMode::Execute => "runtime",
                 ExecutionMode::Annotation => "annotation",
                 ExecutionMode::Viewer => "viewer",
+                ExecutionMode::Planned => "planned",
             };
             assert_eq!(expected["version"], spec.version);
             assert_eq!(expected["executionMode"], mode);

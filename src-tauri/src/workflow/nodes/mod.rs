@@ -3,6 +3,8 @@ pub mod delay;
 pub mod file_input;
 pub mod media_info;
 pub mod media_merge;
+pub mod preview;
+pub mod save_artifact;
 pub mod save_json;
 pub mod save_text;
 pub mod text_input;

@@ -47,12 +47,6 @@ impl Db {
             )",
             [],
         )?;
-        // Existing MVP databases predate the error column. SQLite has no
-        // `ADD COLUMN IF NOT EXISTS`; duplicate-column is intentionally ignored.
-        let _ = self
-            .conn
-            .execute("ALTER TABLE node_executions ADD COLUMN error TEXT", []);
-
         self.conn.execute(
             "CREATE TABLE IF NOT EXISTS node_executions (
                 id INTEGER PRIMARY KEY,
@@ -60,10 +54,16 @@ impl Db {
                 node_id TEXT NOT NULL,
                 status TEXT NOT NULL,
                 started_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                completed_at DATETIME
+                completed_at DATETIME,
+                error TEXT
             )",
             [],
         )?;
+        // Existing MVP databases predate the error column. SQLite has no
+        // `ADD COLUMN IF NOT EXISTS`; duplicate-column is intentionally ignored.
+        let _ = self
+            .conn
+            .execute("ALTER TABLE node_executions ADD COLUMN error TEXT", []);
 
         self.conn.execute(
             "CREATE TABLE IF NOT EXISTS node_results (

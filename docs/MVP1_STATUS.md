@@ -43,7 +43,9 @@ MVP1 is successfully completed.
 
 ## Technical Debt
 
-- None
+The original prototype debt was addressed by Runtime Contract V2. Future
+publishing integrations and executable creator nodes remain explicitly deferred;
+see `docs/status/NODE_RUNTIME_IMPLEMENTATION_STATUS.md`.
 
 ## Deferred
 
@@ -59,4 +61,5 @@ Validated:
 - 100% Completion.
 
 Next:
-Enjoy the application!
+Treat Runtime Contract V2—not this historical MVP1 ledger—as the active source
+of implementation status.

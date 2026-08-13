@@ -1,12 +1,10 @@
 use crate::error::{AppError, Result};
+use crate::runtime::RuntimeServices;
 use crate::workflow::artifact::ArtifactManager;
-use crate::workflow::executor::NodeExecutor;
+use crate::workflow::executor::{NodeExecutor, ProgressReporter};
 use crate::workflow::model::{Node, NodeExecutionResult, NodeInputs, NodeValue};
 use async_trait::async_trait;
 use serde_json::Value;
-use std::process::Stdio;
-use tokio::io::AsyncReadExt;
-use tokio::process::Command;
 use tokio_util::sync::CancellationToken;
 
 pub struct MediaInfoNode;
@@ -15,49 +13,68 @@ pub fn extract_media_info(stdout: &str) -> Result<Value> {
     let parsed: Value = serde_json::from_str(stdout)
         .map_err(|e| AppError::Internal(format!("Failed to parse ffprobe json: {}", e)))?;
 
-    let mut duration = 0.0;
-    let mut width = 0;
-    let mut height = 0;
-    let mut vcodec = String::new();
-    let mut acodec = String::new();
-
-    if let Some(format) = parsed.get("format") {
-        if let Some(d) = format.get("duration").and_then(Value::as_str) {
-            duration = d.parse::<f64>().unwrap_or(0.0);
-        }
-    }
-
-    if let Some(streams) = parsed.get("streams").and_then(Value::as_array) {
-        for stream in streams {
-            let codec_type = stream
-                .get("codec_type")
-                .and_then(Value::as_str)
-                .unwrap_or("");
-            if codec_type == "video" {
-                vcodec = stream
-                    .get("codec_name")
-                    .and_then(Value::as_str)
-                    .unwrap_or("")
-                    .to_string();
-                width = stream.get("width").and_then(Value::as_i64).unwrap_or(0);
-                height = stream.get("height").and_then(Value::as_i64).unwrap_or(0);
-            } else if codec_type == "audio" {
-                acodec = stream
-                    .get("codec_name")
-                    .and_then(Value::as_str)
-                    .unwrap_or("")
-                    .to_string();
-            }
-        }
-    }
+    let format = parsed.get("format").cloned().unwrap_or(Value::Null);
+    let duration_ms = format
+        .get("duration")
+        .and_then(Value::as_str)
+        .and_then(|value| value.parse::<f64>().ok())
+        .map(|seconds| (seconds * 1000.0).round() as u64);
+    let parse_number = |key: &str| {
+        format
+            .get(key)
+            .and_then(Value::as_str)
+            .and_then(|value| value.parse::<u64>().ok())
+    };
+    let streams = parsed
+        .get("streams")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    let video = streams
+        .iter()
+        .find(|stream| stream.get("codec_type").and_then(Value::as_str) == Some("video"));
+    let audio = streams
+        .iter()
+        .find(|stream| stream.get("codec_type").and_then(Value::as_str) == Some("audio"));
+    let fps = video
+        .and_then(|stream| stream.get("avg_frame_rate"))
+        .and_then(Value::as_str)
+        .and_then(parse_rate);
 
     Ok(serde_json::json!({
-        "duration": duration,
-        "width": width,
-        "height": height,
-        "vcodec": vcodec,
-        "acodec": acodec,
+        "durationMs": duration_ms,
+        "format": format.get("format_name").and_then(Value::as_str),
+        "sizeBytes": parse_number("size"),
+        "bitRate": parse_number("bit_rate"),
+        "video": video.map(|stream| serde_json::json!({
+            "codec": stream.get("codec_name").and_then(Value::as_str),
+            "width": stream.get("width").and_then(Value::as_u64),
+            "height": stream.get("height").and_then(Value::as_u64),
+            "fps": fps,
+            "pixelFormat": stream.get("pix_fmt").and_then(Value::as_str),
+            "colorSpace": stream.get("color_space").and_then(Value::as_str),
+        })),
+        "audio": audio.map(|stream| serde_json::json!({
+            "codec": stream.get("codec_name").and_then(Value::as_str),
+            "sampleRate": stream.get("sample_rate").and_then(Value::as_str).and_then(|value| value.parse::<u64>().ok()),
+            "channels": stream.get("channels").and_then(Value::as_u64),
+            "bitRate": stream.get("bit_rate").and_then(Value::as_str).and_then(|value| value.parse::<u64>().ok()),
+        })),
+        "raw": parsed,
     }))
+}
+
+fn parse_rate(value: &str) -> Option<f64> {
+    let (numerator, denominator) = value.split_once('/')?;
+    let denominator = denominator.parse::<f64>().ok()?;
+    (denominator != 0.0)
+        .then(|| {
+            numerator
+                .parse::<f64>()
+                .ok()
+                .map(|value| value / denominator)
+        })
+        .flatten()
 }
 
 #[async_trait]
@@ -68,9 +85,11 @@ impl NodeExecutor for MediaInfoNode {
         inputs: &NodeInputs,
         cancel_token: CancellationToken,
         _artifact_manager: &ArtifactManager,
+        runtime: &RuntimeServices,
+        progress: ProgressReporter,
     ) -> Result<NodeExecutionResult> {
         let file_path = inputs
-            .get("in")
+            .get("media")
             .and_then(NodeValue::as_path)
             .unwrap_or_default()
             .to_string();
@@ -81,49 +100,24 @@ impl NodeExecutor for MediaInfoNode {
             ));
         }
 
-        let mut child = Command::new("ffprobe")
-            .arg("-v")
-            .arg("quiet")
-            .arg("-print_format")
-            .arg("json")
-            .arg("-show_format")
-            .arg("-show_streams")
-            .arg(&file_path)
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-            .map_err(|e| AppError::Internal(format!("Failed to spawn ffprobe: {}", e)))?;
+        progress(0.1);
+        let raw = runtime.probe_media_json(&file_path, cancel_token).await?;
+        let mut info = extract_media_info(&serde_json::to_string(&raw).map_err(|error| {
+            AppError::Internal(format!("Failed to normalize FFprobe output: {error}"))
+        })?)?;
+        info["path"] = Value::String(file_path);
+        progress(0.95);
 
-        let mut stdout_stream = child.stdout.take().unwrap();
-        let mut stderr_stream = child.stderr.take().unwrap();
-
-        let status = tokio::select! {
-            _ = cancel_token.cancelled() => {
-                let _ = child.kill().await;
-                return Err(AppError::Cancelled("Workflow cancelled".to_string()));
-            }
-            res = child.wait() => res
-        };
-
-        let status =
-            status.map_err(|e| AppError::Internal(format!("ffprobe execution failed: {}", e)))?;
-
-        let mut stdout_bytes = Vec::new();
-        let _ = stdout_stream.read_to_end(&mut stdout_bytes).await;
-
-        let mut stderr_bytes = Vec::new();
-        let _ = stderr_stream.read_to_end(&mut stderr_bytes).await;
-
-        if !status.success() {
-            let err_str = String::from_utf8_lossy(&stderr_bytes);
-            return Err(AppError::Internal(format!("ffprobe error: {}", err_str)));
-        }
-
-        let stdout_str = String::from_utf8_lossy(&stdout_bytes);
-        let info = extract_media_info(&stdout_str)?;
-
+        let media_value = inputs
+            .get("media")
+            .cloned()
+            .unwrap_or(NodeValue::Any(Value::Null));
         Ok(NodeExecutionResult {
-            outputs: [("out".into(), NodeValue::Json(info.clone()))].into(),
+            outputs: [
+                ("metadata".into(), NodeValue::Json(info.clone())),
+                ("media".into(), media_value),
+            ]
+            .into(),
             metadata: info,
             ..NodeExecutionResult::default()
         })
@@ -155,10 +149,10 @@ mod tests {
         }"#;
 
         let info = extract_media_info(mock_json).unwrap();
-        assert_eq!(info["duration"].as_f64().unwrap(), 12.34);
-        assert_eq!(info["width"].as_i64().unwrap(), 1920);
-        assert_eq!(info["height"].as_i64().unwrap(), 1080);
-        assert_eq!(info["vcodec"].as_str().unwrap(), "h264");
-        assert_eq!(info["acodec"].as_str().unwrap(), "aac");
+        assert_eq!(info["durationMs"].as_u64().unwrap(), 12_340);
+        assert_eq!(info["video"]["width"].as_u64().unwrap(), 1920);
+        assert_eq!(info["video"]["height"].as_u64().unwrap(), 1080);
+        assert_eq!(info["video"]["codec"].as_str().unwrap(), "h264");
+        assert_eq!(info["audio"]["codec"].as_str().unwrap(), "aac");
     }
 }

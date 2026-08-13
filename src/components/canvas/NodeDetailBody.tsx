@@ -14,6 +14,7 @@ import { NODE_DEFINITION_MAP, type Port, type ConfigField, type PortType } from 
 import { resolvePortType } from '@/nodes/portCompat';
 import { getNodeIcon, getPortIcon } from '@/components/shell/icons';
 import { PreviewViewer, previewKindForType, type PreviewKind } from '@/components/canvas/PreviewViewer';
+import type { NodeExecutionResult } from '@/nodes/runtimeContract';
 import { cn } from '@/lib/utils';
 
 /**
@@ -134,6 +135,7 @@ export default function NodeDetailBody({ nodeId, onClose }: { nodeId: string; on
           step={field.step}
           placeholder={field.placeholder}
           helperText={field.help}
+          pickerMode={field.pickerMode}
           disabled={isActive}
           disabledReason={isActive ? 'Editing disabled while running' : undefined}
         />
@@ -270,7 +272,7 @@ export default function NodeDetailBody({ nodeId, onClose }: { nodeId: string; on
                   // holds — no bespoke sheet). Each sub-tab is an honest empty
                   // state until a run delivers probed metadata to the frontend
                   // (no `.rs` IPC today); the structure is ready to populate.
-                  <MediaInfoSubTabs status={status} />
+                  <MediaInfoSubTabs status={status} result={ownResult} />
                 ) : (
                   <>
                     {def.configSchema.length > 0 ? (
@@ -501,11 +503,21 @@ type MediaInfoSubtab = (typeof MEDIA_INFO_SUBTABS)[number];
 
 function MediaInfoSubTabs({
   status,
+  result,
 }: {
   status: { status: PerNodeState; message: string; progress: number | null } | undefined;
+  result?: NodeExecutionResult;
 }) {
   const [subtab, setSubtab] = useState<MediaInfoSubtab>('summary');
   const ran = !!status && status.status !== 'idle';
+  const metadata = (result?.metadata && typeof result.metadata === 'object'
+    ? result.metadata
+    : {}) as Record<string, any>;
+  const video = (metadata.video ?? {}) as Record<string, any>;
+  const audio = (metadata.audio ?? {}) as Record<string, any>;
+  const duration = typeof metadata.durationMs === 'number'
+    ? `${(metadata.durationMs / 1000).toFixed(2)} s`
+    : undefined;
 
   return (
     <Tabs value={subtab} onValueChange={(v) => setSubtab(v as MediaInfoSubtab)} className="flex flex-col gap-2">
@@ -521,9 +533,9 @@ function MediaInfoSubTabs({
           <p className="text-[11px] font-medium text-text-muted">Summary</p>
           <MetadataRows
             rows={[
-              { label: 'Container', value: undefined },
-              { label: 'Duration', value: undefined },
-              { label: 'Overall bitrate', value: undefined },
+              { label: 'Container', value: metadata.format },
+              { label: 'Duration', value: duration },
+              { label: 'Overall bitrate', value: metadata.bitRate ? `${Math.round(metadata.bitRate / 1000)} kb/s` : undefined },
             ]}
             ran={ran}
             status={status}
@@ -536,10 +548,10 @@ function MediaInfoSubTabs({
           <p className="text-[11px] font-medium text-text-muted">Video stream</p>
           <MetadataRows
             rows={[
-              { label: 'Codec', value: undefined },
-              { label: 'Resolution', value: undefined },
-              { label: 'Frame rate', value: undefined },
-              { label: 'Pixel format', value: undefined },
+              { label: 'Codec', value: video.codec },
+              { label: 'Resolution', value: video.width && video.height ? `${video.width} × ${video.height}` : undefined },
+              { label: 'Frame rate', value: video.fps ? `${Number(video.fps).toFixed(2)} fps` : undefined },
+              { label: 'Pixel format', value: video.pixelFormat },
             ]}
             ran={ran}
             status={status}
@@ -552,10 +564,10 @@ function MediaInfoSubTabs({
           <p className="text-[11px] font-medium text-text-muted">Audio stream</p>
           <MetadataRows
             rows={[
-              { label: 'Codec', value: undefined },
-              { label: 'Sample rate', value: undefined },
-              { label: 'Channels', value: undefined },
-              { label: 'Bitrate', value: undefined },
+              { label: 'Codec', value: audio.codec },
+              { label: 'Sample rate', value: audio.sampleRate ? `${audio.sampleRate} Hz` : undefined },
+              { label: 'Channels', value: audio.channels ? String(audio.channels) : undefined },
+              { label: 'Bitrate', value: audio.bitRate ? `${Math.round(audio.bitRate / 1000)} kb/s` : undefined },
             ]}
             ran={ran}
             status={status}
@@ -572,12 +584,9 @@ function MediaInfoSubTabs({
             <p className="text-[12px] text-text-muted">
               No probe available. Run the workflow to capture FFprobe output.
             </p>
-          ) : status?.status === 'success' ? (
+          ) : status?.status === 'success' && metadata.raw ? (
             <div className="rounded-control border border-border-subtle bg-surface-panel p-2">
-              <p className="font-mono text-[11px] leading-snug text-text-muted">
-                The raw FFprobe JSON will render here once probed metadata is streamed
-                to the frontend.
-              </p>
+              <pre className="max-h-72 overflow-auto whitespace-pre-wrap break-words font-mono text-[11px] leading-snug text-text-muted">{JSON.stringify(metadata.raw, null, 2)}</pre>
             </div>
           ) : (
             <p className="text-[12px] text-text-muted">

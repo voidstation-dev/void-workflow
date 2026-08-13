@@ -350,7 +350,10 @@ Verified live (agent-browser, real double-click via CDP pointer events on real R
 ## Phase F — Remaining Nodes UI — DONE
 
 **Spec:** §32 (standardized Preview by output type), §45 (AI Script), §47 (Media Info detail), §48-50 (Save*), §51 (per-type Inspector deep-design).
-**Status:** DONE — the §32 Preview structure, the per-type `configSchema` for all target nodes, the §47 Media Info sub-tabs, and the §45 AI Script double-click→focus-Prompt behavior are all shipped. Two gaps remain **gated on the artifacts backend bridge** (no `.rs` edits allowed this track), honestly documented — not regressions.
+**Status:** DONE. Historical UI-track restrictions below described the state
+before Runtime Contract V2. The backend bridge, native dialog, typed results,
+Media Info metadata, and per-type media Preview are now implemented; see
+`docs/status/NODE_RUNTIME_IMPLEMENTATION_STATUS.md`.
 **Build:** `npx tsc --noEmit` EXIT 0 · `npm run build` 708.46 kB JS + 58.75 kB CSS (+10.44 kB over Phase H — `PreviewViewer` + NodeDetailPanel Preview-tab wiring).
 
 ### What shipped
@@ -383,12 +386,12 @@ Verified live (agent-browser, real double-click via CDP pointer events on real R
 - `npm run tauri:dev` — Vite ready on :1420 + Rust `Finished dev` + `tauri-app.exe` launched; no errors/panics.
 - §27 checks: no new IPC (PreviewViewer + focus effect are pure presentational/React); no new persisted state (`previewKind` is a `useMemo` in the component body, never a store field); no `alert()`/`confirm()`/`prompt()`; no `.rs` edits; tokens by name only (no raw hex in the new file); no selector returns a fresh object/array (`useMemo` is local derivation, not a Zustand selector — same discipline as `summarize` in BaseNode); status never color-only (`VIEWER_LABEL` text + `KIND_ICON` icon + token color).
 
-### Remaining gaps (gated on the artifacts backend bridge — no `.rs` edits allowed this track)
+### Former gaps (closed by Runtime Contract V2)
 
-- **Per-type Preview content** (rendered text/JSON/image/audio/video) — the viewer *structure* ships now; the *content* needs the backend to stream node output values / artifact paths / media URLs to the frontend (an `convertFileSrc`-style bridge + an artifacts-list IPC). Until that lands, each viewer is the honest structured empty state per §29/§30. Not a regression.
-- **§46 Local File Input metadata** (MIME type, byte size, Choose File dialog, Reveal in Folder) — `path` is the only persisted field; the file-picker Browse button stays disabled with a tooltip (no Tauri dialog bridge). Type/Size are run-time probes the frontend cannot do without IPC. Honest "unknown until read" rows, not fake values.
-
-These two are follow-ups for when the backend bridge lands; they do not block the interaction-critical path and are honestly documented in-UI.
+- Per-type Preview now receives typed node results and uses `convertFileSrc` for
+  image/audio/video playback.
+- Local File Input now uses the native dialog and returns canonical file
+  metadata. Historical statements above are retained as an implementation log.
 
 ---
 

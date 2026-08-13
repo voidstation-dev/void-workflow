@@ -14,6 +14,7 @@ import {
   Ban,
   Minus,
   Clock,
+  FileText,
   type LucideIcon,
 } from 'lucide-react';
 import { useWorkflowStore } from '@/store/workflowStore';
@@ -111,12 +112,12 @@ function CollapsedBar({ activeTab, onExpand }: { activeTab: DockTab; onExpand: (
   const problems = useWorkflowStore((s) => s.problems);
   const runStatus = useWorkflowStore((s) => s.runStatus);
   const runProgress = useWorkflowStore((s) => s.runProgress);
-  const lastCompletedRunId = useWorkflowStore((s) => s.lastCompletedRunId);
+  const nodeResults = useWorkflowStore((s) => s.nodeResults);
   const toggle = useWorkflowStore((s) => s.toggleDock);
 
   const errorCount = logs.filter((l) => (l.level || '').toLowerCase() === 'error').length;
   const problemCount = problems.length;
-  const artifactCount = lastCompletedRunId !== null ? 1 : 0;
+  const artifactCount = Object.values(nodeResults).reduce((count, result) => count + result.artifacts.length, 0);
 
   const runLabel =
     runStatus === 'idle' ? 'Run · idle'
@@ -199,13 +200,14 @@ function CollapsedPill({
 function TabBar({ activeTab, onSelect }: { activeTab: DockTab; onSelect: (tab: DockTab) => void }) {
   const logs = useWorkflowStore((s) => s.logs);
   const problems = useWorkflowStore((s) => s.problems);
+  const nodeResults = useWorkflowStore((s) => s.nodeResults);
   const toggle = useWorkflowStore((s) => s.toggleDock);
 
   const counts: Record<DockTab, number> = {
     console: logs.filter((l) => (l.level || '').toLowerCase() === 'error').length,
     problems: problems.length,
     run: 0,
-    artifacts: 0,
+    artifacts: Object.values(nodeResults).reduce((count, result) => count + result.artifacts.length, 0),
   };
 
   const refs = useRef<(HTMLButtonElement | null)[]>([]);
@@ -612,7 +614,7 @@ function ProblemsPanel() {
           const isError = p.severity === 'error';
           const Icon = isError ? XCircle : TriangleAlert;
           const tone = isError ? 'text-status-error' : 'text-status-warning';
-          const ariaLabel = `${p.severity}${p.nodeId ? ` ${p.nodeId}` : ''}: ${p.message}. Jump to node`;
+          const ariaLabel = `${p.severity}${p.nodeId ? ` ${p.nodeId}` : ''}: ${p.title ?? p.message}. ${p.message}${p.hint ? ` ${p.hint}` : ''}. Jump to node`;
           return (
             <li key={p.id}>
               <button
@@ -622,7 +624,10 @@ function ProblemsPanel() {
                 className="flex w-full items-center gap-2 rounded-control bg-surface-panel px-2 py-1.5 text-left hover:bg-surface-hover"
               >
                 <Icon size={14} className={cn('shrink-0', tone)} aria-hidden="true" />
-                <span className="flex-1 truncate text-[11px] text-text-secondary">{p.message}</span>
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-[11px] font-medium text-text-primary">{p.title ?? p.message}</span>
+                  {(p.title || p.hint) && <span className="block truncate text-[10px] text-text-muted">{p.message}{p.hint ? ` — ${p.hint}` : ''}</span>}
+                </span>
                 {p.nodeId && <span className="shrink-0 text-[12px] text-text-primary">{p.nodeId}</span>}
                 <span className="sr-only">{isError ? 'error' : 'warning'}</span>
               </button>
@@ -742,6 +747,8 @@ function RunPanel() {
 
 function ArtifactsPanel({ controller }: { controller: WorkflowController }) {
   const lastCompletedRunId = useWorkflowStore((s) => s.lastCompletedRunId);
+  const nodeResults = useWorkflowStore((s) => s.nodeResults);
+  const artifacts = Object.values(nodeResults).flatMap((result) => result.artifacts);
   const hasRun = lastCompletedRunId !== null;
 
   if (!hasRun) {
@@ -766,13 +773,28 @@ function ArtifactsPanel({ controller }: { controller: WorkflowController }) {
         <FolderOpen size={14} aria-hidden="true" />
         Open Output Folder
       </button>
-      {/* R8: no backend artifacts-list IPC exists and we cannot add one (no .rs
-          edits). The per-file list, Preview, and Copy Path arrive with that
-          future IPC. Documented in-UI (DoD: understand what's happening without
-          dev tools) — NOT stubbed with fake rows. */}
-      <p className="text-[11px] text-text-muted">
-        Per-file list, Preview, and Copy Path arrive with the future artifacts-list IPC.
-      </p>
+      {artifacts.length === 0 ? (
+        <p className="text-[11px] text-text-muted">This run completed without producing files.</p>
+      ) : (
+        <ul className="min-h-0 flex-1 overflow-auto">
+          {artifacts.map((artifact) => (
+            <li key={artifact.id} className="flex items-center gap-2 border-b border-border-subtle py-1.5 last:border-b-0">
+              <FileText size={13} className="shrink-0 text-text-muted" aria-hidden="true" />
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-[12px] text-text-primary">{artifact.path.split(/[\\/]/).pop()}</p>
+                <p className="truncate text-[10px] text-text-muted">{artifact.kind} · {artifact.size.toLocaleString()} bytes</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => void navigator.clipboard.writeText(artifact.path)}
+                className="rounded-control px-2 py-1 text-[11px] text-text-muted hover:bg-surface-hover hover:text-text-primary"
+              >
+                Copy Path
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }

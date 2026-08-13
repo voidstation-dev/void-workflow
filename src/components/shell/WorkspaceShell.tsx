@@ -86,9 +86,9 @@ export function WorkspaceShell({ controller }: { controller: WorkflowController 
       case 'runs':
         return <HistoryScreen />;
       case 'settings':
-        return <SettingsScreen />;
+        return <SettingsScreen controller={controller} />;
       case 'environment':
-        return <EnvironmentScreen />;
+        return <EnvironmentScreen controller={controller} />;
       default:
         return null;
     }

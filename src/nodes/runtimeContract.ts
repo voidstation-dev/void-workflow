@@ -71,6 +71,68 @@ export interface WorkflowGraphV2 {
   edges: Array<Record<string, unknown>>;
 }
 
+export interface ValidationProblem {
+  id: string;
+  severity: 'error' | 'warning';
+  code: string;
+  title: string;
+  message: string;
+  hint: string | null;
+  nodeId: string | null;
+  edgeId: string | null;
+}
+
+export interface ValidationReport {
+  valid: boolean;
+  problems: ValidationProblem[];
+}
+
+export interface AppErrorPayload {
+  code: string;
+  title: string;
+  message: string;
+  hint: string | null;
+  details: unknown;
+  retryable: boolean;
+}
+
+export interface RuntimeSettings {
+  outputDirectory: string;
+  ffmpegPath: string;
+  ffprobePath: string;
+  concurrency: number;
+}
+
+export interface HealthProbe {
+  state: 'ready' | 'configured' | 'degraded' | 'down' | 'unknown';
+  detail: string;
+}
+
+export interface EnvironmentHealth {
+  backend: HealthProbe;
+  sqlite: HealthProbe;
+  storage: HealthProbe;
+  ffmpeg: HealthProbe;
+  ffprobe: HealthProbe;
+  gemini: HealthProbe;
+}
+
+export function normalizeAppError(error: unknown): AppErrorPayload {
+  if (error && typeof error === 'object' && 'message' in error) {
+    const value = error as Partial<AppErrorPayload>;
+    return {
+      code: typeof value.code === 'string' ? value.code : 'UNKNOWN_ERROR',
+      title: typeof value.title === 'string' ? value.title : 'Operation failed',
+      message: typeof value.message === 'string' ? value.message : 'An unknown error occurred.',
+      hint: typeof value.hint === 'string' ? value.hint : null,
+      details: value.details ?? null,
+      retryable: value.retryable === true,
+    };
+  }
+  const message = String(error);
+  return { code: 'UNKNOWN_ERROR', title: 'Operation failed', message, hint: null, details: null, retryable: false };
+}
+
 export function serializeWorkflowGraph(nodes: AppNode[], edges: Edge[]): WorkflowGraphV2 {
   return {
     schemaVersion: WORKFLOW_SCHEMA_VERSION,

@@ -25,6 +25,10 @@ pub struct Node {
     pub version: u32,
     #[serde(default)]
     pub data: NodeData,
+    /// Preserve React Flow fields such as `position`, dimensions and parent
+    /// metadata while the backend normalizes and re-serializes the graph.
+    #[serde(flatten)]
+    pub extra: HashMap<String, Value>,
 }
 
 fn default_node_version() -> u32 {
@@ -180,5 +184,22 @@ mod tests {
 
         let value = NodeValue::Text("hello".into());
         assert_eq!(serde_json::to_value(value).unwrap()["kind"], "text");
+    }
+
+    #[test]
+    fn backend_round_trip_preserves_editor_position() {
+        let graph: WorkflowGraph = serde_json::from_value(serde_json::json!({
+            "schemaVersion": 2,
+            "nodes": [{
+                "id": "n", "type": "textInput", "version": 2,
+                "position": { "x": 120.5, "y": 64 },
+                "data": { "label": "Text", "content": "hello" }
+            }],
+            "edges": []
+        }))
+        .unwrap();
+        let encoded = serde_json::to_value(graph).unwrap();
+        assert_eq!(encoded["nodes"][0]["position"]["x"], 120.5);
+        assert_eq!(encoded["nodes"][0]["position"]["y"], 64);
     }
 }

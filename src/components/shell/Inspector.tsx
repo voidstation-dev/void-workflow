@@ -264,6 +264,7 @@ function NodeInspector({ nodeId }: { nodeId: string }) {
           step={field.step}
           placeholder={field.placeholder}
           helperText={field.help}
+          pickerMode={field.pickerMode}
           disabled={isActive}
           disabledReason={isActive ? 'Editing disabled while running' : undefined}
         />

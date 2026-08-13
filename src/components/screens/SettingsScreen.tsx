@@ -1,18 +1,18 @@
-import { Settings, RotateCcw } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { isTauri } from '@tauri-apps/api/core';
+import { Settings, RotateCcw, Save, Trash2 } from 'lucide-react';
 import { useWorkflowStore } from '@/store/workflowStore';
 import { Panel } from '@/components/primitives/Panel';
 import { PanelHeader } from '@/components/primitives/PanelHeader';
 import { InspectorSection } from '@/components/primitives/InspectorSection';
 import { PropertyRow } from '@/components/primitives/PropertyRow';
 import { ToolbarButton } from '@/components/primitives/ToolbarButton';
+import type { WorkflowController } from '@/hooks/useWorkflowController';
+import { normalizeAppError, type RuntimeSettings } from '@/nodes/runtimeContract';
 
 /**
- * SettingsScreen — Phase 9, spec §16. Frontend-only workflow-level preferences,
- * composed entirely from §11 primitives. The parts that need backend
- * integration (Gemini key, output dir, FFmpeg path, concurrency) are disabled
- * with "Requires backend support" tooltips — no set_gemini_key / get_settings
- * IPC exists, and the redesign forbids adding any (no .rs edits). NO Gemini key
- * modal (deferred). NO empty state (spec §12 line 441).
+ * SettingsScreen — workflow preferences plus Runtime V2 settings and secure
+ * Gemini connection. Native-only actions remain disabled in the web preview.
  *
  * Provider health moved to the Environment tab (spec §20) in Phase 9 — this
  * screen's "System Health" section now links there rather than duplicating the
@@ -27,9 +27,9 @@ import { ToolbarButton } from '@/components/primitives/ToolbarButton';
  * The screen container is `main[data-screen="settings"]` — the shared landmark
  * selector `main[data-screen]` is in LANDMARK_SELECTORS so F6 can reach it.
  */
-const BACKEND_TOOLTIP = 'Requires backend support';
+const DEFAULT_RUNTIME_SETTINGS: RuntimeSettings = { outputDirectory: '', ffmpegPath: '', ffprobePath: '', concurrency: 2 };
 
-export function SettingsScreen() {
+export function SettingsScreen({ controller }: { controller: WorkflowController }) {
   const minimapOn = useWorkflowStore((s) => s.minimapOn);
   const setMinimapOn = useWorkflowStore((s) => s.setMinimapOn);
   const projectName = useWorkflowStore((s) => s.projectName);
@@ -42,6 +42,47 @@ export function SettingsScreen() {
   const toggleDock = useWorkflowStore((s) => s.toggleDock);
   const rightPanelCollapsed = useWorkflowStore((s) => s.rightPanelCollapsed);
   const dockCollapsed = useWorkflowStore((s) => s.dockCollapsed);
+  const geminiHealth = useWorkflowStore((s) => s.health.gemini);
+  const [runtimeSettings, setRuntimeSettings] = useState(DEFAULT_RUNTIME_SETTINGS);
+  const [geminiKey, setGeminiKey] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (!isTauri()) return;
+    void controller.getRuntimeSettings().then(setRuntimeSettings).catch((error) => {
+      const payload = normalizeAppError(error);
+      controller.pushToast({ kind: 'error', title: payload.title, description: payload.message });
+    });
+  }, [controller]);
+
+  const saveRuntime = async () => {
+    setSaving(true);
+    try {
+      const updated = await controller.updateRuntimeSettings(runtimeSettings);
+      setRuntimeSettings(updated);
+      controller.pushToast({ kind: 'success', title: 'Runtime settings saved' });
+    } catch (error) {
+      const payload = normalizeAppError(error);
+      controller.pushToast({ kind: 'error', title: payload.title, description: payload.message });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const saveGeminiKey = async () => {
+    if (!geminiKey.trim()) return;
+    setSaving(true);
+    try {
+      await controller.setGeminiApiKey(geminiKey);
+      setGeminiKey('');
+      controller.pushToast({ kind: 'success', title: 'Gemini connection saved securely' });
+    } catch (error) {
+      const payload = normalizeAppError(error);
+      controller.pushToast({ kind: 'error', title: payload.title, description: payload.message });
+    } finally {
+      setSaving(false);
+    }
+  };
 
   const resetLayout = () => {
     // Restore the uiSlice defaults. Each setter is a no-op when already at the
@@ -125,11 +166,66 @@ export function SettingsScreen() {
             </p>
           </InspectorSection>
 
-          <InspectorSection title="Backend Integration" level={3} defaultCollapsed>
-            <PropertyRow label="Gemini API key" type="text" value="" onChange={() => {}} disabled disabledReason={BACKEND_TOOLTIP} placeholder="Not configured" />
-            <PropertyRow label="Output directory" type="text" value="" onChange={() => {}} disabled disabledReason={BACKEND_TOOLTIP} placeholder="Not configured" />
-            <PropertyRow label="FFmpeg path" type="text" value="" onChange={() => {}} disabled disabledReason={BACKEND_TOOLTIP} placeholder="Not configured" />
-            <PropertyRow label="Concurrency" type="number" value={1} onChange={() => {}} disabled disabledReason={BACKEND_TOOLTIP} min={1} max={16} unit="workers" />
+          <InspectorSection title="Runtime" level={3}>
+            <PropertyRow
+              label="Output folder"
+              type="file"
+              pickerMode="directory"
+              value={runtimeSettings.outputDirectory}
+              onChange={(value) => setRuntimeSettings((current) => ({ ...current, outputDirectory: String(value) }))}
+              placeholder="Default run folder"
+              helperText="Empty uses the app data run folder"
+            />
+            <PropertyRow
+              label="FFmpeg"
+              type="file"
+              value={runtimeSettings.ffmpegPath}
+              onChange={(value) => setRuntimeSettings((current) => ({ ...current, ffmpegPath: String(value) }))}
+              placeholder="Auto-detect from PATH"
+            />
+            <PropertyRow
+              label="FFprobe"
+              type="file"
+              value={runtimeSettings.ffprobePath}
+              onChange={(value) => setRuntimeSettings((current) => ({ ...current, ffprobePath: String(value) }))}
+              placeholder="Auto-detect from PATH"
+            />
+            <PropertyRow
+              label="Concurrency"
+              type="number"
+              value={runtimeSettings.concurrency}
+              onChange={(value) => setRuntimeSettings((current) => ({ ...current, concurrency: Number(value) }))}
+              min={1}
+              max={16}
+              unit="workers"
+            />
+            <div className="flex justify-end py-1">
+              <ToolbarButton variant="primary" size="sm" icon={Save} loading={saving} disabled={!isTauri()} onClick={() => void saveRuntime()}>
+                Save runtime
+              </ToolbarButton>
+            </div>
+          </InspectorSection>
+
+          <InspectorSection title="Gemini" level={3}>
+            <PropertyRow
+              label="API key"
+              type="password"
+              value={geminiKey}
+              onChange={(value) => setGeminiKey(String(value))}
+              placeholder={geminiHealth === 'configured' ? 'Configured — enter a new key to replace' : 'Enter API key'}
+              helperText="Stored in the operating system credential vault; never written to workflow JSON"
+            />
+            <div className="flex justify-end gap-2 py-1">
+              <ToolbarButton variant="secondary" size="sm" icon={Trash2} disabled={!isTauri() || geminiHealth !== 'configured'} onClick={() => void controller.clearGeminiApiKey().then(() => controller.pushToast({ kind: 'success', title: 'Gemini connection cleared' })).catch((error) => {
+                const payload = normalizeAppError(error);
+                controller.pushToast({ kind: 'error', title: payload.title, description: payload.message });
+              })}>
+                Clear key
+              </ToolbarButton>
+              <ToolbarButton variant="primary" size="sm" icon={Save} loading={saving} disabled={!isTauri() || !geminiKey.trim()} onClick={() => void saveGeminiKey()}>
+                Save key
+              </ToolbarButton>
+            </div>
           </InspectorSection>
         </div>
       </div>

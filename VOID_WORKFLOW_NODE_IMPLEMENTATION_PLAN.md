@@ -4248,24 +4248,25 @@ The next coding pass should start here, in this exact order:
 - [x] Emit `node-result`.
 - [x] Emit backend-owned final `run-status`.
 - [x] Persist lightweight node results and artifact refs.
-- [x] Add backend graph validation. (Port/type/cardinality/cycle coverage is in place; structured Problems DTO remains.)
+- [x] Add backend graph validation and structured Problems DTO.
 - [x] Add contract parity tests.
-- [ ] Reconcile Text Input.
-- [ ] Complete Text Transform.
-- [ ] Reconcile Delay.
-- [ ] Wire Tauri dialog.
-- [ ] Reconcile Local File Input.
-- [ ] Bridge Media Info output.
-- [ ] Complete Save Text behavior.
-- [ ] Complete Save JSON behavior.
-- [ ] Implement Save Artifact.
-- [ ] Add secret/provider settings.
-- [ ] Refactor Gemini into provider service.
-- [ ] Complete AI Script.
-- [ ] Convert Media Merge to explicit Video + Audio ports.
-- [ ] Refactor FFmpeg into shared service with progress.
-- [ ] Implement canonical Preview executor.
-- [ ] Only after all above: begin executable short-video nodes.
+- [x] Reconcile Text Input.
+- [x] Complete Text Transform.
+- [x] Reconcile Delay.
+- [x] Wire Tauri dialog.
+- [x] Reconcile Local File Input.
+- [x] Bridge Media Info output.
+- [x] Complete Save Text behavior.
+- [x] Complete Save JSON behavior.
+- [x] Implement Save Artifact.
+- [x] Add secret/provider settings.
+- [x] Refactor Gemini into provider service.
+- [x] Complete AI Script.
+- [x] Convert Media Merge to explicit Video + Audio ports.
+- [x] Refactor FFmpeg into shared service with progress.
+- [x] Implement canonical Preview executor.
+- [x] Add Short Video and Marketing architecture/schema/UI as design-only; keep
+  their backend executors deferred as required by the product scope.
 
 ---
 

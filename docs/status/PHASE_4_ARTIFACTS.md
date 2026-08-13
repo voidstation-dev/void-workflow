@@ -42,7 +42,8 @@ Passed:
 - `cargo check` and `npm run build` succeed.
 
 Missing:
-- None
+- Historical MVP1 had no custom output directory, collision policy, typed
+  artifact output, or Save Artifact executor. Runtime V2 now implements them.
 
 ## Exit Criteria
 

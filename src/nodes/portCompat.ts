@@ -47,5 +47,15 @@ export function resolvePortType(
  * type. Pure; used by the soft advisory path (never a hard block).
  */
 export function isTypeCompatible(sourceType: PortType, targetType: PortType): boolean {
-  return sourceType === 'any' || targetType === 'any' || sourceType === targetType;
+  if (sourceType === 'any' || targetType === 'any' || sourceType === targetType) return true;
+  if (targetType === 'media') {
+    return ['file', 'audio', 'video', 'artifact'].includes(sourceType);
+  }
+  if (targetType === 'video' || targetType === 'audio') {
+    return ['file', 'media', 'artifact'].includes(sourceType);
+  }
+  if (targetType === 'artifact') {
+    return ['file', 'media', 'audio', 'video'].includes(sourceType);
+  }
+  return false;
 }

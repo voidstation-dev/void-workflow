@@ -670,9 +670,8 @@ corrections were folded in.
   when a run has completed, "Open Output Folder" button calls
   `controller.openFolder()` (existing `open_run_folder` IPC, replaces the audit
   `currentRunId||1` hack already fixed in the controller); a muted in-UI note
-  documents the per-file list / Preview / Copy-Path gap (no backend
-  artifacts-list IPC, cannot add one — zero `.rs` edits; R8 — NOT stubbed with
-  fake rows). Empty state when no run completed. `WorkflowShell` now threads
+  now renders the typed per-file list and Copy Path actions delivered by Runtime
+  V2. Empty state remains when no run completed. `WorkflowShell` now threads
   `controller` to `BottomDock`.
 - **Controller inference (R4 — `useWorkflowController.ts`):** completed the §11.4
   MVP1 per-node fallback additively (workflow-log payload `{run_id, node_id,
