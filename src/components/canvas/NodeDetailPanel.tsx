@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   Dialog,
   DialogContent,
@@ -148,6 +148,7 @@ function NodeDetailBody({ nodeId, onClose }: { nodeId: string; onClose: () => vo
       return (
         <PropertyRow
           key={field.key}
+          id={`cfg-${nodeId}-${field.key}`}
           label={field.label}
           type={rowType as 'text' | 'textarea' | 'number' | 'select' | 'toggle' | 'slider' | 'file'}
           value={value}
@@ -218,6 +219,21 @@ function NodeDetailBody({ nodeId, onClose }: { nodeId: string; onClose: () => vo
       ? 'preview'
       : tabs[0]?.id ?? 'configure',
   );
+
+  // Spec §45: double-clicking an AI Script node opens the detail panel AND
+  // focuses the Prompt textarea so the user can start authoring immediately.
+  // Frontend-only (no IPC). Skipped while the node is running/queued (the
+  // Prompt is disabled then — focusing a disabled control is pointless). The
+  // dialog remounts per node (key=detailNodeId), so this runs fresh each open.
+  useEffect(() => {
+    if (def?.type !== 'aiScript' || isActive) return;
+    const id = `cfg-${nodeId}-prompt`;
+    const t = window.setTimeout(() => {
+      const el = document.getElementById(id) as HTMLTextAreaElement | null;
+      el?.focus();
+    }, 0);
+    return () => window.clearTimeout(t);
+  }, [def, nodeId, isActive]);
 
   return (
     <div className="flex h-full flex-col">

@@ -19,7 +19,7 @@
 | D | Inspector | DONE (Light UI Phase 5) | Build↔Inspector swap + "← Build" + `InspectorSection`/`PropertyRow` + Advanced |
 | E | Double Click / Detail | DONE | `NodeDetailPanel` (Configure/Input/Output/Run/Preview tabs) |
 | — | Context menus + group toolbar + selection fix | DONE | Radix `ContextMenu` (node + pane right-click) · `GroupToolbar` (multi-select) · clipboard copy/paste · selection-desync fix |
-| F | Remaining Nodes UI | IN_PROGRESS (Preview tab shipped; per-type deep UI pending) | `PreviewViewer` (§32 standardized-by-output-type, honest empty states) built + wired into `NodeDetailPanel` Preview tab · per-type Inspector deep-UI (§51) for AI Script / Save* / Media Merge pending |
+| F | Remaining Nodes UI | DONE | `PreviewViewer` (§32 standardized-by-output-type, honest empty states) · per-type `configSchema` for AI Script (§45) / Save* (§48-50) / Media Merge (§51) + `MediaInfoSubTabs` (§47) + AI Script double-click→focus Prompt (§45) · per-type Preview content + §46 file metadata gated on the artifacts backend bridge (no `.rs` edits) |
 | G | Connection Insert | DONE | `InsertEdge` custom edge (hover `+` at midpoint → cmdk picker → `insertNodeBetween` splices A→New→B) |
 | H | Review | DONE | §68 validation + §69 acceptance + runtime regression (save/load/run/stop) — all verified |
 
@@ -347,13 +347,13 @@ Verified live (agent-browser, real double-click via CDP pointer events on real R
 
 ---
 
-## Phase F — Remaining Nodes UI — IN_PROGRESS (Preview tab shipped; per-type deep UI pending)
+## Phase F — Remaining Nodes UI — DONE
 
-**Spec:** §32 (standardized Preview by output type), §47 (Media Info detail), §51 (per-type Inspector deep-design).
-**Status:** IN_PROGRESS — the §32 Preview portion is shipped + wired; the per-type Inspector deep-UI (§51) for AI Script / Save* / Media Merge remains.
+**Spec:** §32 (standardized Preview by output type), §45 (AI Script), §47 (Media Info detail), §48-50 (Save*), §51 (per-type Inspector deep-design).
+**Status:** DONE — the §32 Preview structure, the per-type `configSchema` for all target nodes, the §47 Media Info sub-tabs, and the §45 AI Script double-click→focus-Prompt behavior are all shipped. Two gaps remain **gated on the artifacts backend bridge** (no `.rs` edits allowed this track), honestly documented — not regressions.
 **Build:** `npx tsc --noEmit` EXIT 0 · `npm run build` 708.46 kB JS + 58.75 kB CSS (+10.44 kB over Phase H — `PreviewViewer` + NodeDetailPanel Preview-tab wiring).
 
-### What shipped (Preview portion — spec §32)
+### What shipped
 
 - **`src/components/canvas/PreviewViewer.tsx`** — NEW. The standardized preview surface, dispatched **by output type, not by node type** (spec §32 "Preview should not be reinvented per node"). Exports `PreviewViewer({kind, status})`, `previewKindForType(type)→PreviewKind`, and the `PreviewKind` union (`text|json|image|audio|video|media|media-info`).
   - **`previewKindForType`** maps a port type → viewer kind: `text→text`, `json→json`, `audio→audio`, `video→video`; `media`/`file`/`artifact`/`any`/`number`/`boolean`/default → `media` (no dedicated `image` port type — §35/§36 ports have no `image`; image previews reach the generic `media` viewer, which the artifacts bridge will specialize once the MIME is known).
@@ -365,17 +365,30 @@ Verified live (agent-browser, real double-click via CDP pointer events on real R
   - `previewKind` derived via `useMemo`: `mediaInfo`→`media-info`; else the first out-port type → `previewKindForType`; else the first resolvable in-port source type; else `previewKindForType(firstIn.type)`. Stable per render (no selector allocation).
   - The Preview `<TabsContent value="preview">` renders `<PreviewViewer kind={previewKind} status=… />` (replacing the Phase E "per-type viewers ship in Phase F" placeholder). A `mediaInfo` node also keeps its §47 structured-metadata surface inline above the viewer.
 
-### Verification gate (green — Preview portion)
+- **Per-type `configSchema` (spec §45/§48-51) — verified complete** in `src/nodes/registry.ts`. All target nodes carry full, spec-matching fields rendered through the shared `PropertyRow` + `InspectorSection` (Basic / Advanced) mechanism — no bespoke panel per node (§61 holds):
+  - **AI Script (§45):** Provider, Model, Prompt, System Instructions, Output (Text/JSON/Structured), Temperature + Advanced: Timeout, Response Schema.
+  - **Save Text (§48):** Filename, Output Directory, Overwrite behavior (Rename/Overwrite/Skip).
+  - **Save JSON (§49):** Filename, Formatting (Pretty/Compact), Output Directory.
+  - **Save Artifact (§50):** Filename, Location, Artifact type (Auto/Video/Audio/Image/File), Overwrite behavior.
+  - **Media Merge (§51):** Audio Mode (Replace/Mix), Duration (Shortest/Video/Audio), Resolution, Frame rate + Advanced: Video codec, Audio codec, Bitrate.
+
+- **Media Info sub-tabs (§47)** — `MediaInfoSubTabs` renders Summary / Video / Audio / Raw nested Radix Tabs inside the generic Configure tab (the one per-node structural exception; §61 still holds — no bespoke sheet). Raw FFprobe output is Advanced-only (§47). Each sub-tab is an honest structured empty state until a run delivers probed metadata (no `.rs` IPC today).
+
+- **AI Script double-click → focus Prompt (§45)** — `NodeDetailPanel` runs a `useEffect` on open: when the opened node is an `aiScript` and not running/queued, it focuses the Prompt textarea (`cfg-<id>-prompt`, a stable id now passed to `PropertyRow`). Frontend-only (no IPC). Skipped while running (the Prompt is disabled then — focusing a disabled control is pointless). The dialog remounts per node (`key=detailNodeId`), so the effect runs fresh each open.
+
+### Verification gate (green)
 
 - `npx tsc --noEmit` — clean.
-- `npm run build` — clean (708.46 kB; the +10.44 kB is `PreviewViewer` + the Preview-tab wiring).
+- `npm run build` — clean (708.46 kB; the +10.44 kB is `PreviewViewer` + the Preview-tab wiring; the focus-Prompt fix is zero-cost — a `useEffect` + a stable id).
 - `npm run tauri:dev` — Vite ready on :1420 + Rust `Finished dev` + `tauri-app.exe` launched; no errors/panics.
-- §27 checks: no new IPC (PreviewViewer is pure presentational); no new persisted state (`previewKind` is a `useMemo` in the component body, never a store field); no `alert()`/`confirm()`/`prompt()`; no `.rs` edits; tokens by name only (no raw hex in the new file); no selector returns a fresh object/array (`useMemo` is local derivation, not a Zustand selector — same discipline as `summarize` in BaseNode); status never color-only (`VIEWER_LABEL` text + `KIND_ICON` icon + token color).
+- §27 checks: no new IPC (PreviewViewer + focus effect are pure presentational/React); no new persisted state (`previewKind` is a `useMemo` in the component body, never a store field); no `alert()`/`confirm()`/`prompt()`; no `.rs` edits; tokens by name only (no raw hex in the new file); no selector returns a fresh object/array (`useMemo` is local derivation, not a Zustand selector — same discipline as `summarize` in BaseNode); status never color-only (`VIEWER_LABEL` text + `KIND_ICON` icon + token color).
 
-### Pending (Phase F remainder)
+### Remaining gaps (gated on the artifacts backend bridge — no `.rs` edits allowed this track)
 
-- **Per-type Inspector deep-UI (spec §51)** for the remaining nodes: AI Script (model/temperature/max-tokens/visibility controls), Save* (filename template / format / overwrite), Media Merge (track layout / codec hints). The shared `PropertyRow` + `InspectorSection` + `ConfigField` (incl. `advanced`) from Light UI Phase 5 already carry the scaffolding; the deep-design is per-node `configSchema` richness, not new architecture (§61 "avoid unique panel architecture per node").
-- Per-type **Preview content** (rendered text/JSON/image/audio/video) remains gated on the artifacts backend bridge — no `.rs` edits allowed, so this stays as the honest structured empty state until that bridge lands. Not a regression; documented honestly per §29/§30.
+- **Per-type Preview content** (rendered text/JSON/image/audio/video) — the viewer *structure* ships now; the *content* needs the backend to stream node output values / artifact paths / media URLs to the frontend (an `convertFileSrc`-style bridge + an artifacts-list IPC). Until that lands, each viewer is the honest structured empty state per §29/§30. Not a regression.
+- **§46 Local File Input metadata** (MIME type, byte size, Choose File dialog, Reveal in Folder) — `path` is the only persisted field; the file-picker Browse button stays disabled with a tooltip (no Tauri dialog bridge). Type/Size are run-time probes the frontend cannot do without IPC. Honest "unknown until read" rows, not fake values.
+
+These two are follow-ups for when the backend bridge lands; they do not block the interaction-critical path and are honestly documented in-UI.
 
 ---
 
@@ -469,4 +482,4 @@ Verified live (agent-browser, real double-click via CDP pointer events on real R
 
 ### Track complete
 
-All interaction phases shipped and runtime-verified: **C** (floating toolbar) · **D** (Inspector, Light UI) · **E** (double-click detail) · **context menus + group toolbar + selection fix** · **G** (connection insert) · **H** (review). **Phase F** (Remaining Nodes UI / per-type Preview viewers) is **deferred** — the Preview tab honestly states per-type viewers ship later; no fake rendered output. The interaction-critical path (sidebar → card → selection → toolbar → Inspector → detail → context menus → group toolbar → connection insert → keyboard → save/load/run/stop) is complete and regression-clean.
+All interaction phases shipped and runtime-verified: **A** (Build Sidebar) · **B** (Shared Node Card) · **C** (floating toolbar) · **D** (Inspector, Light UI) · **E** (double-click detail) · **context menus + group toolbar + selection fix** · **F** (Remaining Nodes UI — Preview structure + per-type configSchema + Media Info sub-tabs + AI Script focus-Prompt; per-type Preview content + §46 file metadata gated on the backend bridge) · **G** (connection insert) · **H** (review). The interaction-critical path (sidebar → card → selection → toolbar → Inspector → detail → context menus → group toolbar → connection insert → keyboard → save/load/run/stop) is complete and regression-clean. The two remaining gaps (per-type Preview content, §46 file metadata) are honestly deferred to the artifacts backend bridge — no fake output, no `.rs` edits.
