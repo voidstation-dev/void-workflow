@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { lazy, Suspense, useEffect, useState } from 'react';
 import { useWorkflowStore } from '@/store/workflowStore';
 import { WorkflowHeader } from './WorkflowHeader';
 import { WorkflowTabs } from './WorkflowTabs';
@@ -10,11 +10,22 @@ import { ToastRegion } from './ToastRegion';
 import { StatusAnnouncer } from './StatusAnnouncer';
 import { KeyboardHelpDialog } from './KeyboardHelpDialog';
 import { UnsavedGuardDialog } from './UnsavedGuardDialog';
-import { HistoryScreen } from '@/components/screens/HistoryScreen';
-import { SettingsScreen } from '@/components/screens/SettingsScreen';
-import { EnvironmentScreen } from '@/components/screens/EnvironmentScreen';
 import type { WorkflowController } from '@/hooks/useWorkflowController';
 import type { ActiveScreen } from '@/store/workflowStore';
+
+// Non-workflow screens are code-split — they are never needed on the default
+// workflow view, so deferring them shrinks the initial bundle. Named exports
+// → wrap into a default for React.lazy. The workflow screen's components
+// (CanvasContainer/NodeLibrary/Inspector) stay eagerly imported above.
+const HistoryScreen = lazy(() =>
+  import('@/components/screens/HistoryScreen').then((m) => ({ default: m.HistoryScreen })),
+);
+const SettingsScreen = lazy(() =>
+  import('@/components/screens/SettingsScreen').then((m) => ({ default: m.SettingsScreen })),
+);
+const EnvironmentScreen = lazy(() =>
+  import('@/components/screens/EnvironmentScreen').then((m) => ({ default: m.EnvironmentScreen })),
+);
 
 /**
  * WorkspaceShell — light UI grid (spec §2). Row 1: header (48px). Row 2:
@@ -110,9 +121,11 @@ export function WorkspaceShell({ controller }: { controller: WorkflowController 
         </>
       ) : (
         <>
-          {/* Row 3 — the active screen spans the full body (right col 0). */}
+          {/* Row 3 — the active screen spans the full body (right col 0).
+              Suspense fallback is null: screen swap is an explicit user action
+              and the chunk resolves in ms on Tauri local FS — no flash. */}
           <div style={{ gridColumn: '1 / -1' }} className="min-w-0 overflow-hidden">
-            {renderScreen(activeScreen)}
+            <Suspense fallback={null}>{renderScreen(activeScreen)}</Suspense>
           </div>
         </>
       )}

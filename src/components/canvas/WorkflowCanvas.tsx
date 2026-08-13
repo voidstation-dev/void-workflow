@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ReactFlow,
   Background,
@@ -24,9 +24,18 @@ import { useKeyboardConnect } from '@/hooks/useKeyboardConnect';
 import { CanvasToolbar } from './CanvasToolbar';
 import { StartMarker } from './StartMarker';
 import { ContextMenu, ContextMenuTrigger } from '@/components/primitives/ContextMenu';
-import { CanvasContextMenuContent } from './CanvasContextMenu';
-import { GroupToolbar } from './GroupToolbar';
 import { InsertEdge } from './InsertEdge';
+
+// Code-split the gated canvas children: the pane right-click menu content pulls
+// cmdk + @radix-ui/react-context-menu, and the multi-select GroupToolbar pulls
+// @radix-ui/react-popover + the arrange/delete hooks. Neither is needed on the
+// initial workflow view (no right-click yet, no multi-select), so deferring
+// them shrinks the initial bundle. Named exports → wrap into a default for
+// React.lazy.
+const CanvasContextMenuContent = lazy(() =>
+  import('./CanvasContextMenu').then((m) => ({ default: m.CanvasContextMenuContent })),
+);
+const GroupToolbar = lazy(() => import('./GroupToolbar').then((m) => ({ default: m.GroupToolbar })));
 
 // Phase G (spec §33/§66): the default edge is the custom InsertEdge — the
 // normal bezier path PLUS a hover `+` button at the midpoint that opens a node
@@ -395,7 +404,9 @@ function CanvasInner() {
             Panel lifted ABOVE the CanvasToolbar so the two don't overlap. */}
         {showGroupToolbar && (
           <Panel position="bottom-center" className="mb-[3.25rem]">
-            <GroupToolbar ids={multiSelectIds} />
+            <Suspense fallback={null}>
+              <GroupToolbar ids={multiSelectIds} />
+            </Suspense>
           </Panel>
         )}
         {/* Empty state (spec §7.1): DOM-removed (conditional render, not
@@ -448,8 +459,13 @@ function CanvasInner() {
     </div>
       </ContextMenuTrigger>
       {/* Pane right-click menu (spec §53): Add Node · Paste · Fit View.
-          flowPosition is captured by onPaneContextMenu at right-click time. */}
-      <CanvasContextMenuContent flowPosition={paneFlowPos} />
+          flowPosition is captured by onPaneContextMenu at right-click time. The
+          eager ContextMenu wrapper handles the right-click immediately; the lazy
+          content (cmdk Add-Node list + actions) populates ms later on Tauri
+          local FS. Null fallback → no visible gap. */}
+      <Suspense fallback={null}>
+        <CanvasContextMenuContent flowPosition={paneFlowPos} />
+      </Suspense>
     </ContextMenu>
   );
 }

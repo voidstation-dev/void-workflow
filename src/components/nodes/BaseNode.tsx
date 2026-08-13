@@ -1,14 +1,26 @@
-import { memo, useState } from 'react';
+import { lazy, memo, Suspense, useState } from 'react';
 import type { NodeProps } from '@xyflow/react';
 import { useWorkflowStore, type AppNode, type PerNodeState } from '@/store/workflowStore';
 import { NODE_DEFINITION_MAP } from '@/nodes/registry';
 import { getNodeIcon } from '@/components/shell/icons';
 import { NodeStatus } from '@/components/primitives/NodeStatus';
-import { NodeFloatingToolbar } from '@/components/canvas/NodeFloatingToolbar';
 import { ContextMenu, ContextMenuTrigger } from '@/components/primitives/ContextMenu';
-import { NodeContextMenuContent } from '@/components/canvas/NodeContextMenu';
 import { PortHandle } from './PortHandle';
 import { cn } from '@/lib/utils';
+
+// Code-split the conditional children: the floating toolbar (gated on
+// `selected`) transitively pulls cmdk + @radix-ui/react-popover +
+// @radix-ui/react-dropdown-menu (via AddNextPopover + NodeMoreMenu), and the
+// right-click menu content pulls cmdk + @radix-ui/react-context-menu. Neither
+// is needed until a node is selected / right-clicked, so deferring them shrinks
+// the initial bundle. BaseNode itself stays eagerly loaded (single nodeTypes
+// renderer, §27). Named exports → wrap into a default for React.lazy.
+const NodeFloatingToolbar = lazy(() =>
+  import('@/components/canvas/NodeFloatingToolbar').then((m) => ({ default: m.NodeFloatingToolbar })),
+);
+const NodeContextMenuContent = lazy(() =>
+  import('@/components/canvas/NodeContextMenu').then((m) => ({ default: m.NodeContextMenuContent })),
+);
 
 /**
  * BaseNode — the single visual renderer for ALL node types (spec §7 / DS §11.5,
@@ -94,7 +106,11 @@ function BaseNodeComponent({ id, type, data, selected }: NodeProps<AppNode>) {
           : 'border-border-subtle',
       )}
     >
-      {showToolbar && <NodeFloatingToolbar nodeId={id} isExecutable={!!def.executable} />}
+      {showToolbar && (
+        <Suspense fallback={null}>
+          <NodeFloatingToolbar nodeId={id} isExecutable={!!def.executable} />
+        </Suspense>
+      )}
       {/* NodeHeader — icon + title (always present). No ⋯ menu yet (Phase 6
           Inspector owns per-node actions). */}
       <div className="flex items-center gap-1.5 px-3 py-2">
@@ -169,8 +185,13 @@ function BaseNodeComponent({ id, type, data, selected }: NodeProps<AppNode>) {
       )}
     </div>
       </ContextMenuTrigger>
-      {/* Node right-click menu (spec §53): Configure · Add Next · Duplicate · Copy · Delete. */}
-      <NodeContextMenuContent nodeId={id} />
+      {/* Node right-click menu (spec §53): Configure · Add Next · Duplicate · Copy · Delete.
+          The eager ContextMenu wrapper handles right-click → selectNode wiring
+          immediately; the lazy content (cmdk list + actions) populates ms later
+          on Tauri local FS. Null fallback → no visible gap. */}
+      <Suspense fallback={null}>
+        <NodeContextMenuContent nodeId={id} />
+      </Suspense>
     </ContextMenu>
   );
 }
