@@ -11,8 +11,8 @@ import { cn } from '@/lib/utils';
  * disabled (aria-disabled + title tooltip).
  *
  * Tokens by name only. Never color-only: an icon-only button still carries a
- * visible/accessible label via ariaLabel + title. Composed by the Phase 8 App
- * Screens and the TopToolbar back affordance.
+ * visible/accessible label via ariaLabel + title. Composed by the App Screens
+ * (Runs/Settings/Environment) and the WorkflowHeader actions.
  */
 export type ToolbarButtonVariant = 'primary' | 'secondary' | 'ghost' | 'danger';
 export type ToolbarButtonSize = 'default' | 'sm' | 'icon';

@@ -1,72 +1,77 @@
 @import "tailwindcss";
 
 /* ============================================================================
-   Void Workflow — Design System tokens (Phase 2 spec, Phase 3 implements)
-   Dark-first. color-scheme: dark. Light mode is a stretch goal (§13.4).
+   Void Workflow — Design System tokens (Light UI, spec §24/§25)
+   color-scheme: light. Light neutral canvas, white panels, indigo accent.
    shadcn-compatible: background/foreground/primary/... aliases preserved.
+   The @theme inline block below is var()-based, so every Tailwind utility
+   retargets automatically from this :root. No component edits required for
+   the palette flip. Radius/shadow scales follow spec §25.
    ========================================================================== */
 
 :root {
-  color-scheme: dark;
+  color-scheme: light;
 
-  /* --- Surface ---------------------------------------------------------- */
-  --surface-canvas:       #0d0f13;  /* canvas bg, deepest surface            */
-  --surface-canvas-grid:  #1f232b;  /* React Flow Background dots            */
-  --surface-sidebar:      #14161b;  /* rail/library/inspector/toolbar        */
-  --surface-panel:        #1a1d23;  /* dock/sections/inputs/node cards       */
-  --surface-elevated:     #22262e;  /* popover/menu/selected/toast           */
-  --surface-hover:        #2a2f38;  /* hover/active row fill                 */
-  --surface-input:        #181b21;  /* form control bg (darker than panel)   */
-  --surface-overlay:      rgba(7, 8, 10, 0.6); /* modal scrim               */
+  /* --- Surface (spec §24: canvas #F7F7F5, panel/header #FFFFFF) --------- */
+  --surface-canvas:       #F7F7F5;  /* canvas bg, light neutral              */
+  --surface-canvas-grid:  #E2E4E8;  /* React Flow Background dots (low-op)   */
+  --surface-sidebar:      #FFFFFF;  /* header/library/inspector/toolbar      */
+  --surface-panel:        #FFFFFF;  /* dock/sections/inputs/node cards       */
+  --surface-elevated:     #FFFFFF;  /* popover/menu/selected/toast (shadow lifts) */
+  --surface-hover:        #F2F3F5;  /* hover/active row fill                 */
+  --surface-input:        #FFFFFF;  /* form control bg (border defines it)   */
+  --surface-overlay:      rgba(23, 24, 28, 0.45); /* modal scrim             */
 
-  /* --- Border ----------------------------------------------------------- */
-  --border-subtle:        #21252d;  /* zone separators (1px)                 */
-  --border-default:       #2e333d;  /* popover/menu/input borders            */
-  --border-focus:         #1d6fd0;  /* THE accent / focus / selection ring   */
-  --border-status:        #3a4049;  /* status badge outlines, progress track */
+  /* --- Border (spec §24: border #E6E7E9) ------------------------------- */
+  --border-subtle:        #E6E7E9;  /* zone separators (1px)                 */
+  --border-default:       #C9CBD0;  /* popover/menu/input borders            */
+  --border-focus:         #5267E9;  /* THE accent / focus / selection ring   */
+  --border-status:        #C9CBD0;  /* status badge outlines, progress track */
 
-  /* --- Text ------------------------------------------------------------- */
-  --text-primary:         #e7e9ec;  /* 13.88:1 vs panel — AAA                */
-  --text-secondary:       #aeb4be;  /* 8.10:1  vs panel — AAA                */
-  --text-muted:           #949aa6;  /* 5.97:1  vs panel — AA                 */
-  --text-disabled:        #6b7280;  /* decorative small text (§12)           */
-  --text-error:           #f0656a;  /* 5.45:1  vs panel — AA                 */
-  --text-accent:          #4a9eff;  /* accent-tinted text (links, run %)     */
-  --text-on-accent:       #ffffff;  /* on accent.fill (Run button label)     */
-  --text-on-status:       #ffffff;  /* in filled status badges               */
+  /* --- Text (spec §24) ------------------------------------------------- */
+  --text-primary:         #17181A;  /* ~16:1  vs panel — AAA                */
+  --text-secondary:       #64676D;  /* ~5.3:1 vs panel — AA                 */
+  --text-muted:           #92969E;  /* ~3.2:1 vs panel — AA-large/decorative */
+  --text-disabled:        #C0C4CC;  /* decorative small text (§12)           */
+  --text-error:           #C5303C;  /* ~4.6:1 vs panel — AA                 */
+  --text-accent:          #3F52D4;  /* darker indigo for accent text on white (~6.6:1) */
+  --text-on-accent:       #FFFFFF;  /* on accent.fill (Run button label)     */
+  --text-on-status:       #FFFFFF;  /* in filled status badges               */
 
-  /* --- Status (color-SECONDARY; always pair with icon + label) ---------- */
-  --status-idle:          #6b7280;
-  --status-queued:        #b08ad3;
-  --status-running:       #1d6fd0;  /* accent hue — "live" color             */
-  --status-success:       #36c98a;
-  --status-warning:       #e8a317;
-  --status-error:         #f0656a;
-  --status-error-strong:  #d23b41;  /* darker fill for text-on-status error buttons/badges — 4.5:1+ */
-  --status-error-hover:   #b82f35;  /* hover on error fills must darken, never opacity-down */
-  --status-cancelled:     #787e8a;
-  --status-skipped:       #5a6271;
+  /* --- Status (color-SECONDARY; always pair with icon + label; §24 muted) -- */
+  --status-idle:          #92969E;
+  --status-queued:        #8B7AC4;
+  --status-running:       #5267E9;  /* follows the new accent — "live" color  */
+  --status-success:       #3FAE7A;
+  --status-warning:       #C8861E;
+  --status-error:         #C5303C;
+  --status-error-strong:  #B02733;  /* darker fill for text-on-status error buttons/badges — 4.5:1+ */
+  --status-error-hover:   #9E2230;  /* hover on error fills must darken, never opacity-down */
+  --status-cancelled:     #7A8089;
+  --status-skipped:       #A0A5AD;
 
-  /* --- Accent (single hue) ---------------------------------------------- */
-  --accent:               #1d6fd0;
-  --accent-hover:         #2874d4;
-  --accent-subtle:        rgba(29, 111, 208, 0.18);
+  /* --- Accent (single hue — indigo, spec §24) -------------------------- */
+  --accent:               #5267E9;
+  --accent-hover:         #4554D6;
+  --accent-subtle:        rgba(82, 103, 233, 0.10);
 
-  /* --- Ports (color-SECONDARY; shape + icon primary) -------------------- */
-  --port-text:            #94a3b8;
-  --port-number:          #38bdf8;
-  --port-boolean:         #fbbf24;
-  --port-json:            #a78bfa;
-  --port-file:            #a8a29e;
-  --port-media:           #fb923c;
-  --port-audio:           #2dd4bf;
-  --port-video:           #e879f9;
-  --port-artifact:        #22c55e;
-  --port-any:             #94a3b8;
+  /* --- Ports (color-SECONDARY; shape + icon primary; desaturated for white) -- */
+  --port-text:            #64748B;
+  --port-number:           #2E96C9;
+  --port-boolean:          #D9A21B;
+  --port-json:            #7C5DD6;
+  --port-file:            #857F77;
+  --port-media:           #E07A3C;
+  --port-audio:           #1FA89A;
+  --port-video:           #C266D9;
+  --port-artifact:        #22A06B;
+  --port-any:             #64748B;
 
-  /* --- Radius ------------------------------------------------------------ */
-  --radius-control:       4px;      /* controls: buttons, inputs, ports      */
-  --radius-panel:         6px;      /* panels, popovers, node cards          */
+  /* --- Radius (spec §25: node 10–12, panel 12, button 7–9, chip 5–6) --- */
+  --radius-control:       8px;      /* buttons, inputs, small controls       */
+  --radius-panel:         12px;     /* panels, popovers, menus               */
+  --radius-node:          10px;     /* node cards (distinct from 12px panels) */
+  --radius-chip:          6px;      /* metadata chips, badges                */
   --radius-full:          9999px;   /* dots, circular port handles           */
 
   /* --- Spacing (4/8/12/16/20/24 — plan §8) ------------------------------ */
@@ -82,10 +87,11 @@
   --border-width-strong:  2px;   /* focus/selection ring (3px under contrast) */
   --border-width-edge:    1.5px; /* canvas edges (spec §7.3)                  */
 
-  /* --- Shadow ----------------------------------------------------------- */
-  --shadow-popover:       0 8px 24px rgba(0, 0, 0, 0.45);
-  --shadow-modal:         0 12px 40px rgba(0, 0, 0, 0.5);
-  --shadow-node:          0 2px 8px  rgba(0, 0, 0, 0.35);
+  /* --- Shadow (spec §25: 0 2px 8px rgba(0,0,0,0.05); selected = stronger) -- */
+  --shadow-popover:       0 4px 16px rgba(0, 0, 0, 0.08);
+  --shadow-modal:         0 8px 32px rgba(0, 0, 0, 0.12);
+  --shadow-node:          0 2px 8px  rgba(0, 0, 0, 0.05);
+  --shadow-node-selected: 0 4px 16px rgba(0, 0, 0, 0.10);
 
   /* --- Motion (≤120ms default; reduced-motion zeroes — see below) ------- */
   --motion-duration-fast: 80ms;
@@ -114,19 +120,19 @@
   --ring-offset: 2px;
   --ring-color:  var(--border-focus);
 
-  /* --- Edge defaults (spec §7.3) --------------------------------------- */
-  --edge-stroke:               var(--border-default);
+  /* --- Edge defaults (spec §11: subtle neutral 1–1.5px) --------------- */
+  --edge-stroke:               #B6BAC1;  /* visible-but-subtle on #F7F7F5     */
   --edge-stroke-width:         var(--border-width-edge);
   --edge-stroke-selected:      var(--accent);
   --edge-stroke-selected-width: var(--border-width-strong);
 
   /* --- shadcn aliases (so `npx shadcn add` lands on the same vars) -----
      NOTE: the shadcn `--accent`/`--accent-foreground` slots are intentionally
-     omitted from the alias block. In the Phase 2 spec they mapped
-     `--accent` to `var(--accent-subtle)`, which (same-specificity, last-wins)
-     shadowed the semantic `--accent: #1d6fd0` above and silently broke every
-     `bg-accent` / `--primary` / `--edge-stroke-selected` reference — Run/Save
-     buttons would have rendered as a near-invisible translucent fill.
+     omitted from the alias block. Earlier they mapped `--accent` to
+     `var(--accent-subtle)`, which (same-specificity, last-wins) shadowed the
+     semantic `--accent` above and silently broke every `bg-accent` /
+     `--primary` / `--edge-stroke-selected` reference — Run/Save buttons
+     would have rendered as a near-invisible translucent fill.
      shadcn's `bg-accent` now resolves to the solid accent, and
      `bg-accent-subtle` remains available for subtle surfaces.            */
   --background:              var(--surface-sidebar);
@@ -289,9 +295,11 @@
   --color-port-artifact:        var(--port-artifact);
   --color-port-any:             var(--port-any);
 
-  /* Radius -> rounded-control, rounded-panel, rounded-full */
+  /* Radius -> rounded-control, rounded-panel, rounded-node, rounded-chip, rounded-full */
   --radius-control:             var(--radius-control);
   --radius-panel:               var(--radius-panel);
+  --radius-node:                var(--radius-node);
+  --radius-chip:                var(--radius-chip);
   --radius-full:                var(--radius-full);
 
   /* Spacing -> p-1..p-6, gap-1..gap-6, m-1..m-6 */
@@ -302,10 +310,11 @@
   --spacing-5: var(--space-5);
   --spacing-6: var(--space-6);
 
-  /* Shadow -> shadow-popover, shadow-modal, shadow-node */
+  /* Shadow -> shadow-popover, shadow-modal, shadow-node, shadow-node-selected */
   --shadow-popover:             var(--shadow-popover);
   --shadow-modal:               var(--shadow-modal);
   --shadow-node:                var(--shadow-node);
+  --shadow-node-selected:       var(--shadow-node-selected);
 
   /* Motion -> duration-fast, duration-base, ease-standard */
   --duration-fast:              var(--motion-duration-fast);
@@ -323,7 +332,7 @@
 /* --- Base layer --------------------------------------------------------- */
 @layer base {
   html {
-    color-scheme: dark;
+    color-scheme: light;
     background: var(--surface-canvas);
     color: var(--text-primary);
     font-family: var(--font-sans-stack);
