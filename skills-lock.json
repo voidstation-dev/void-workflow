@@ -1,0 +1,60 @@
+{
+  "version": 1,
+  "skills": {
+    "agent-browser": {
+      "source": "../../.agents/skills/agent-browser",
+      "sourceType": "local",
+      "computedHash": "548a1f92c7ff55081c65ec1577ff5136beb1d0f58252d448d5bd43f05fefc703"
+    },
+    "audit-context-building": {
+      "source": "../../.agents/skills/audit-context-building",
+      "sourceType": "local",
+      "computedHash": "b779ac6b38d784d5c6ded16470f558f3e3ecef8ee4a5fc41dde667bee15cba98"
+    },
+    "debugging-strategies": {
+      "source": "../../.agents/skills/debugging-strategies",
+      "sourceType": "local",
+      "computedHash": "d7d8542d2205ebdb547d14dab24f467e334f73cfb30c4458888f5431713ca82d"
+    },
+    "differential-review": {
+      "source": "../../.agents/skills/differential-review",
+      "sourceType": "local",
+      "computedHash": "cf5156b1138aa3304d69189d922dae5def51dcf12900a1c518f00bd821a3e0c6"
+    },
+    "doc-and-modernize": {
+      "source": "../../.agents/skills/doc-and-modernize",
+      "sourceType": "local",
+      "computedHash": "27157de30d59ee1b1797b4bea2f2b6d7bd6d610259ddcac58f5f435e1b53d788"
+    },
+    "error-handling-patterns": {
+      "source": "../../.agents/skills/error-handling-patterns",
+      "sourceType": "local",
+      "computedHash": "61c0f8496afccbc0b9c46cf0878fac064892cb80981eb6b64ebc5892c71cfec7"
+    },
+    "frontend-design": {
+      "source": "../../.agents/skills/frontend-design",
+      "sourceType": "local",
+      "computedHash": "93f53fd1c0352d3d7ec17b8f73d7351bf76f4821e55d123c9d2abc2c53ba48e4"
+    },
+    "improve": {
+      "source": "../../.agents/skills/improve",
+      "sourceType": "local",
+      "computedHash": "553713a1b9af40ec50c4018f75b8974bf728fe5abc8e125b748e2d718d5c31ea"
+    },
+    "rust-async-patterns": {
+      "source": "../../.agents/skills/rust-async-patterns",
+      "sourceType": "local",
+      "computedHash": "9203b9abc8238c578887994730421879778720184b027859fecda3f76d31ab05"
+    },
+    "shadcn": {
+      "source": "../../.agents/skills/shadcn",
+      "sourceType": "local",
+      "computedHash": "f99ef49d9909d380ca683ceb8dc8c25775c20ee38140112c394e037d8c11ee18"
+    },
+    "web-design-guidelines": {
+      "source": "../../.agents/skills/web-design-guidelines",
+      "sourceType": "local",
+      "computedHash": "a6a44d5498f7e8f68289902f3dedfc6f38ae0cee1e96527c80724cf27f727c2a"
+    }
+  }
+}
