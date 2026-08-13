@@ -1,5 +1,8 @@
 # Phase 8 — Stabilization & E2E Testing
 
+> Historical MVP1/prototype status, not a claim of production-wide E2E
+> coverage. Current gaps are listed in `NODE_RUNTIME_IMPLEMENTATION_STATUS.md`.
+
 Status: DONE
 
 Progress: 100%

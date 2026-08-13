@@ -10,6 +10,7 @@ import {
 import type { PortType } from '@/nodes/registry';
 import { InspectorSection } from '@/components/primitives/InspectorSection';
 import type { PerNodeState } from '@/store/workflowStore';
+import type { NodeExecutionResult, NodeValue } from '@/nodes/runtimeContract';
 
 /**
  * PreviewViewer — spec §32 (Phase F). The standardized preview surface,
@@ -27,17 +28,11 @@ import type { PerNodeState } from '@/store/workflowStore';
  *   media/file → media viewer (file/artifact fall here)
  *   media-info → structured metadata (Media Info node; §47)
  *
- * Honesty invariants (spec §29/§30, "no false run affordances"): the backend
- * does NOT persist node output values, artifact paths, or media URLs to the
- * frontend — there is no `convertFileSrc` bridge and no artifacts IPC today
- * (no `.rs` edits allowed). So each viewer is an HONEST, STRUCTURED empty
- * state: it names the type it will render, states that no content is
- * available yet, and documents exactly what will populate it once the
- * artifacts bridge lands. No viewer fabricates content, no `<video src>` is
- * pointed at a fake URL, no fake JSON tree is drawn. This is the §32
- * *structure* delivered now; the *content* arrives with the backend bridge.
+ * Runtime Contract V2 supplies typed node-result payloads. Text, JSON, paths,
+ * and artifact references render here directly; native media URL conversion
+ * remains a later runtime-service concern.
  *
- * No `.rs` / no IPC / no new persisted state. Pure presentational.
+ * Pure presentational; result ownership remains in the workflow store.
  */
 
 /** What the viewer can show once output data reaches the frontend. */
@@ -108,6 +103,7 @@ export interface PreviewViewerProps {
   kind: PreviewKind;
   /** This node's run status, for the honest "not run / ran but no payload" distinction. */
   status?: { status: PerNodeState; message: string } | undefined;
+  result?: NodeExecutionResult;
 }
 
 /**
@@ -116,7 +112,14 @@ export interface PreviewViewerProps {
  * payload reached the frontend" — both honestly state that no content is
  * available, the latter adds why (the backend does not stream output values).
  */
-export function PreviewViewer({ kind, status }: PreviewViewerProps) {
+function displayValue(value: NodeValue): string {
+  if (value.kind === 'text') return value.value;
+  if (value.kind === 'number' || value.kind === 'boolean') return String(value.value);
+  if (value.kind === 'file' || value.kind === 'media' || value.kind === 'audio' || value.kind === 'video' || value.kind === 'artifact') return value.value.path;
+  return JSON.stringify(value.value, null, 2);
+}
+
+export function PreviewViewer({ kind, status, result }: PreviewViewerProps) {
   const Icon = KIND_ICON[kind];
   const label = VIEWER_LABEL[kind];
   const hint = VIEWER_HINT[kind];
@@ -132,16 +135,29 @@ export function PreviewViewer({ kind, status }: PreviewViewerProps) {
         </div>
       </div>
 
-      {!ran ? (
+      {result && Object.keys(result.outputs).length > 0 ? (
+        <InspectorSection title="Output">
+          {Object.entries(result.outputs).map(([port, value]) => (
+            <div key={port} className="flex flex-col gap-1">
+              <p className="text-[11px] font-medium text-text-muted">{port}</p>
+              <pre className="max-h-64 overflow-auto whitespace-pre-wrap break-words rounded-control bg-surface-input p-2 text-[12px] text-text-secondary">{displayValue(value)}</pre>
+            </div>
+          ))}
+        </InspectorSection>
+      ) : result && result.artifacts.length > 0 ? (
+        <InspectorSection title="Artifacts">
+          {result.artifacts.map((artifact) => (
+            <p key={artifact.id} className="break-all text-[12px] text-text-secondary">{artifact.path}</p>
+          ))}
+        </InspectorSection>
+      ) : !ran ? (
         <p className="text-[12px] text-text-muted">
           No preview available. Run the workflow to generate output for preview.
         </p>
       ) : status?.status === 'success' ? (
         <InspectorSection title="Output">
           <p className="text-[12px] text-text-secondary">
-            A run completed successfully, but node output values are not streamed to the
-            frontend yet. Inline content renders here once the artifacts bridge lands
-            (a per-run, per-node artifact URL).
+            The node completed without a previewable output value.
           </p>
         </InspectorSection>
       ) : (

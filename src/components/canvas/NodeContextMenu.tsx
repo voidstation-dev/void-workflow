@@ -83,7 +83,7 @@ export function NodeContextMenuContent({ nodeId }: { nodeId: string }) {
   // Add Next sub-menu items (reuses the same suggestion logic as the toolbar
   // AddNextPopover — single owner of the "what to suggest" rule).
   const suggested = def ? buildSuggested(node?.type) : [];
-  const executable = !!def?.executable;
+  const executable = def?.executionMode === 'runtime';
 
   const onPickNext = (type: string) => {
     useWorkflowStore.getState().addNextStep(nodeId, type);

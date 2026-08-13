@@ -1,10 +1,9 @@
 use crate::error::Result;
 use crate::workflow::artifact::ArtifactManager;
 use crate::workflow::executor::NodeExecutor;
-use crate::workflow::model::Node;
+use crate::workflow::model::{Node, NodeExecutionResult, NodeInputs, NodeValue};
 use async_trait::async_trait;
 use serde_json::Value;
-use std::collections::HashMap;
 use tokio::time::{sleep, Duration};
 use tokio_util::sync::CancellationToken;
 
@@ -15,25 +14,26 @@ impl NodeExecutor for DelayNode {
     async fn execute(
         &self,
         node: &Node,
-        inputs: &HashMap<String, Value>,
+        inputs: &NodeInputs,
         cancel_token: CancellationToken,
         _artifact_manager: &ArtifactManager,
-    ) -> Result<Value> {
+    ) -> Result<NodeExecutionResult> {
         let ms = node
             .data
             .extra
-            .get("duration")
-            .and_then(Value::as_u64)
+            .get("seconds")
+            .and_then(Value::as_f64)
+            .map(|seconds| (seconds.max(0.0) * 1000.0) as u64)
+            .or_else(|| node.data.extra.get("duration").and_then(Value::as_u64))
             .unwrap_or(1000);
 
         tokio::select! {
             _ = sleep(Duration::from_millis(ms)) => {
-                // Pass through the first input's output
-                let pass_through = inputs.values().next().cloned().unwrap_or(serde_json::json!({}));
-                Ok(pass_through)
+                let pass_through = inputs.get("in").cloned().unwrap_or(NodeValue::Any(Value::Null));
+                Ok(NodeExecutionResult::output("out", pass_through))
             }
             _ = cancel_token.cancelled() => {
-                Err(crate::error::AppError::Internal("Cancelled during delay".to_string()))
+                Err(crate::error::AppError::Cancelled("Cancelled during delay".to_string()))
             }
         }
     }

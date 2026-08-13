@@ -1,0 +1,14 @@
+{
+  "textInput": { "version": 1, "executionMode": "runtime", "inputs": {}, "requiredInputs": [], "outputs": { "out": "text" } },
+  "textTransform": { "version": 1, "executionMode": "runtime", "inputs": { "in": "text" }, "requiredInputs": ["in"], "outputs": { "out": "text" } },
+  "delay": { "version": 1, "executionMode": "runtime", "inputs": { "in": "any" }, "requiredInputs": ["in"], "outputs": { "out": "any" } },
+  "aiScript": { "version": 1, "executionMode": "runtime", "inputs": { "in": "text" }, "requiredInputs": ["in"], "outputs": { "out": "text" } },
+  "fileInput": { "version": 1, "executionMode": "runtime", "inputs": {}, "requiredInputs": [], "outputs": { "out": "file" } },
+  "mediaInfo": { "version": 1, "executionMode": "runtime", "inputs": { "in": "media" }, "requiredInputs": ["in"], "outputs": { "out": "json" } },
+  "saveText": { "version": 1, "executionMode": "runtime", "inputs": { "in": "text" }, "requiredInputs": ["in"], "outputs": {} },
+  "saveJson": { "version": 1, "executionMode": "runtime", "inputs": { "in": "json" }, "requiredInputs": ["in"], "outputs": {} },
+  "saveArtifact": { "version": 1, "executionMode": "runtime", "inputs": { "in": "artifact" }, "requiredInputs": ["in"], "outputs": {} },
+  "mediaMerge": { "version": 1, "executionMode": "runtime", "inputs": { "in": "media" }, "requiredInputs": ["in"], "outputs": { "out": "media" } },
+  "preview": { "version": 1, "executionMode": "viewer", "inputs": { "in": "any" }, "requiredInputs": ["in"], "outputs": {} },
+  "markdownNote": { "version": 1, "executionMode": "annotation", "inputs": {}, "requiredInputs": [], "outputs": {} }
+}

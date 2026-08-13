@@ -1,5 +1,8 @@
 # Phase 3 — Observability
 
+> Historical MVP1/prototype status. Authoritative terminal run events and
+> typed node results are tracked in `NODE_RUNTIME_IMPLEMENTATION_STATUS.md`.
+
 Status: DONE
 
 Progress: 100%

@@ -15,6 +15,7 @@ import {
 } from '@xyflow/react';
 import { v4 as uuidv4 } from 'uuid';
 import { NODE_DEFINITION_MAP } from '@/nodes/registry';
+import type { NodeExecutionResult } from '@/nodes/runtimeContract';
 
 /* ============================================================================
    AppNode / AppNodeData — preserved shape (regression contract §27)
@@ -208,10 +209,13 @@ export interface RunSlice {
   runStartedAt: number | null;
   runError: string | null;
   lastCompletedRunId: number | null;
+  nodeResults: Record<string, NodeExecutionResult>;
   setRunStarting: () => void;
   setRunRunning: (runId: number) => void;
   setRunProgress: (progress: number | null) => void;
   setNodeStatus: (nodeId: string, status: PerNodeState, message?: string) => void;
+  setNodeProgress: (nodeId: string, progress: number) => void;
+  setNodeResult: (nodeId: string, result: NodeExecutionResult) => void;
   setRunTerminal: (status: 'succeeded' | 'failed' | 'cancelled', error?: string) => void;
   resetRun: () => void;
 }
@@ -356,7 +360,7 @@ export interface UiSlice {
 
 // --- projectSlice (NEW) ---
 // HistoryEntry is frontend-populated by the controller on run terminal states
-// (succeeded/failed via inferRunCompletion; cancelled via stop()). It is
+// (succeeded/failed/cancelled via the authoritative backend run event). It is
 // session-only — NOT persisted (excluded from partialize by the whitelist). The
 // shape extends the Phase 3 dead `history` field with endedAt/duration/failedNode
 // so the History screen can render status, time, and the offending node.
@@ -375,11 +379,9 @@ export interface ProjectSlice {
   history: HistoryEntry[];
   setWorkflowName: (name: string) => void;
   setProjectName: (name: string) => void;
-  // Prepend a new history entry (dedup-skip if runId already recorded — used by
-  // inferRunCompletion, where the first terminal wins). Capped at 200.
+  // Prepend a new history entry (dedup-skip if runId already recorded).
   appendHistory: (entry: HistoryEntry) => void;
-  // Replace any existing entry for the same runId, else prepend — used by stop()
-  // so a deliberate cancel overrides a racing inferred terminal state.
+  // Replace any existing entry for the same runId, else prepend.
   replaceHistoryEntry: (entry: HistoryEntry) => void;
 }
 
@@ -401,7 +403,7 @@ const LOG_CAP = 2000;
 const clamp = (v: number, min: number, max: number) => Math.min(max, Math.max(min, v));
 
 /* ============================================================================
-   Problems derivation — scans graph for frontend-only EXECUTABLE nodes
+   Problems derivation — scans graph for frontend-only runtime nodes
    (spec §14.2 Run guard). Called by the controller after replaceGraph +
    on graph mutations.
    ========================================================================== */
@@ -418,7 +420,7 @@ export function deriveProblems(state: WorkflowState): Problem[] {
       });
       continue;
     }
-    if (def.registryState === 'frontend-only' && def.executable) {
+    if (def.registryState === 'frontend-only' && def.executionMode === 'runtime') {
       problems.push({
         id: `frontend-only-${node.id}`,
         severity: 'warning',
@@ -814,8 +816,9 @@ export const useWorkflowStore = create<WorkflowState>()(
       runStartedAt: null,
       runError: null,
       lastCompletedRunId: null,
+      nodeResults: {},
       setRunStarting: () =>
-        set({ runStatus: 'starting', runError: null, runProgress: null, perNodeStatus: {} }),
+        set({ runStatus: 'starting', runError: null, runProgress: null, perNodeStatus: {}, nodeResults: {} }),
       setRunRunning: (runId) =>
         set({ runStatus: 'running', runId, runStartedAt: Date.now() }),
       setRunProgress: (progress) => set({ runProgress: progress }),
@@ -832,6 +835,23 @@ export const useWorkflowStore = create<WorkflowState>()(
             },
           },
         }),
+      setNodeProgress: (nodeId, progress) => {
+        const current = get().perNodeStatus[nodeId];
+        set({
+          perNodeStatus: {
+            ...get().perNodeStatus,
+            [nodeId]: {
+              status: current?.status ?? 'running',
+              progress,
+              message: current?.message ?? '',
+              startedAt: current?.startedAt ?? Date.now(),
+              endedAt: current?.endedAt ?? null,
+            },
+          },
+        });
+      },
+      setNodeResult: (nodeId, result) =>
+        set({ nodeResults: { ...get().nodeResults, [nodeId]: result } }),
       setRunTerminal: (status, error) =>
         set({
           runStatus: status,
@@ -847,6 +867,7 @@ export const useWorkflowStore = create<WorkflowState>()(
           perNodeStatus: {},
           runStartedAt: null,
           runError: null,
+          nodeResults: {},
         }),
 
       /* ---- saveSlice ---- */
@@ -938,8 +959,7 @@ export const useWorkflowStore = create<WorkflowState>()(
       // never clear (silent data-loss UX). Honest Phase 8 state.
       setWorkflowName: (name) => set({ workflowName: name }),
       setProjectName: (name) => set({ projectName: name }),
-      // Dedup-skip: keep the FIRST recorded terminal for a runId (used by
-      // inferRunCompletion). Newest-first, cap 200, session-only.
+      // Dedup-skip: keep the first recorded terminal for a runId.
       appendHistory: (entry) =>
         set({
           history: get().history.some((h) => h.runId === entry.runId)
@@ -947,8 +967,6 @@ export const useWorkflowStore = create<WorkflowState>()(
             : [entry, ...get().history].slice(0, 200),
         }),
       // Replace-by-runId: drop any existing entry for this runId then prepend.
-      // Used by stop() so a user-initiated cancel overrides a racing inferred
-      // terminal state (correction #3 from the Phase 8 design verify).
       replaceHistoryEntry: (entry) =>
         set({
           history: [entry, ...get().history.filter((h) => h.runId !== entry.runId)].slice(0, 200),

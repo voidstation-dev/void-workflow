@@ -1,5 +1,9 @@
 # Void Workflow MVP1 Status
 
+> Historical prototype milestone. “COMPLETED” below refers to the original MVP1
+> scope, not production node/runtime completeness. Runtime Contract V2 is the
+> active milestone; see `docs/status/NODE_RUNTIME_IMPLEMENTATION_STATUS.md`.
+
 Last Updated: 2026-08-09 19:43
 
 Overall Status: COMPLETED

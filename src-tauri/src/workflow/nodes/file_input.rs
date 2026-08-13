@@ -1,10 +1,9 @@
 use crate::error::{AppError, Result};
 use crate::workflow::artifact::ArtifactManager;
 use crate::workflow::executor::NodeExecutor;
-use crate::workflow::model::Node;
+use crate::workflow::model::{FileRef, Node, NodeExecutionResult, NodeInputs, NodeValue};
 use async_trait::async_trait;
 use serde_json::Value;
-use std::collections::HashMap;
 use std::path::Path;
 use tokio_util::sync::CancellationToken;
 
@@ -15,14 +14,15 @@ impl NodeExecutor for FileInputNode {
     async fn execute(
         &self,
         node: &Node,
-        _inputs: &HashMap<String, Value>,
+        _inputs: &NodeInputs,
         _cancel_token: CancellationToken,
         _artifact_manager: &ArtifactManager,
-    ) -> Result<Value> {
+    ) -> Result<NodeExecutionResult> {
         let file_path = node
             .data
             .extra
-            .get("file_path")
+            .get("path")
+            .or_else(|| node.data.extra.get("file_path"))
             .and_then(Value::as_str)
             .unwrap_or("");
 
@@ -37,8 +37,18 @@ impl NodeExecutor for FileInputNode {
             )));
         }
 
-        Ok(serde_json::json!({
-            "file_path": file_path
-        }))
+        let path = Path::new(file_path);
+        let metadata = std::fs::metadata(path)?;
+        let file = FileRef {
+            path: file_path.into(),
+            name: path
+                .file_name()
+                .and_then(|value| value.to_str())
+                .unwrap_or(file_path)
+                .into(),
+            size: metadata.len(),
+            mime: None,
+        };
+        Ok(NodeExecutionResult::output("out", NodeValue::File(file)))
     }
 }

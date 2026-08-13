@@ -41,10 +41,15 @@ fn save_workflow(
     project_id: i64,
     graph_json: String,
 ) -> Result<(), error::AppError> {
+    let graph: workflow::model::WorkflowGraph = serde_json::from_str(&graph_json)
+        .map_err(|e| error::AppError::Internal(format!("Invalid graph JSON: {e}")))?;
+    let graph = workflow::graph::migrate_graph(graph, &workflow::REGISTRY)?;
+    let normalized_json = serde_json::to_string(&graph)
+        .map_err(|e| error::AppError::Internal(format!("Failed to serialize graph: {e}")))?;
     let state = app_handle.state::<AppState>();
     let db_guard = state.db.lock().unwrap();
     if let Some(db) = db_guard.as_ref() {
-        db.save_workflow(project_id, &graph_json)?;
+        db.save_workflow(project_id, &normalized_json)?;
     } else {
         return Err(error::AppError::Internal(
             "Database not initialized".to_string(),
@@ -58,7 +63,12 @@ fn load_workflow(app_handle: AppHandle, project_id: i64) -> Result<String, error
     let state = app_handle.state::<AppState>();
     let db_guard = state.db.lock().unwrap();
     if let Some(db) = db_guard.as_ref() {
-        db.load_workflow(project_id)
+        let json = db.load_workflow(project_id)?;
+        let graph: workflow::model::WorkflowGraph = serde_json::from_str(&json)
+            .map_err(|e| error::AppError::Internal(format!("Invalid saved graph JSON: {e}")))?;
+        let graph = workflow::graph::migrate_graph(graph, &workflow::REGISTRY)?;
+        serde_json::to_string(&graph)
+            .map_err(|e| error::AppError::Internal(format!("Failed to serialize graph: {e}")))
     } else {
         Err(error::AppError::Internal(
             "Database not initialized".to_string(),
@@ -75,8 +85,8 @@ async fn start_run(
     // Deserialize graph to validate
     let graph: workflow::model::WorkflowGraph = serde_json::from_str(&graph_json)
         .map_err(|e| error::AppError::Internal(format!("Invalid graph JSON: {}", e)))?;
-
-    let exec_graph = workflow::graph::ExecutableGraph::build(&graph)?;
+    let graph = workflow::graph::migrate_graph(graph, &workflow::REGISTRY)?;
+    let exec_graph = workflow::graph::ExecutableGraph::build(&graph, &workflow::REGISTRY)?;
     let cancel_token = CancellationToken::new();
 
     let run_id = {

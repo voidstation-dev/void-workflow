@@ -11,6 +11,9 @@ pub enum AppError {
 
     #[error("Internal error: {0}")]
     Internal(String),
+
+    #[error("Cancelled: {0}")]
+    Cancelled(String),
 }
 
 // Implement Serialize so we can return it to frontend via Tauri

@@ -1,10 +1,9 @@
 use crate::error::Result;
 use crate::workflow::artifact::ArtifactManager;
 use crate::workflow::executor::NodeExecutor;
-use crate::workflow::model::Node;
+use crate::workflow::model::{Node, NodeExecutionResult, NodeInputs, NodeValue};
 use async_trait::async_trait;
 use serde_json::Value;
-use std::collections::HashMap;
 use tokio_util::sync::CancellationToken;
 
 pub struct TextInputNode;
@@ -14,16 +13,20 @@ impl NodeExecutor for TextInputNode {
     async fn execute(
         &self,
         node: &Node,
-        _inputs: &HashMap<String, Value>,
+        _inputs: &NodeInputs,
         _cancel_token: CancellationToken,
         _artifact_manager: &ArtifactManager,
-    ) -> Result<Value> {
+    ) -> Result<NodeExecutionResult> {
         let text = node
             .data
             .extra
-            .get("text")
+            .get("content")
+            .or_else(|| node.data.extra.get("text"))
             .and_then(Value::as_str)
             .unwrap_or("");
-        Ok(serde_json::json!({ "output": text }))
+        Ok(NodeExecutionResult::output(
+            "out",
+            NodeValue::Text(text.into()),
+        ))
     }
 }

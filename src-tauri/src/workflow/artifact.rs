@@ -1,6 +1,8 @@
 use crate::error::{AppError, Result};
+use crate::workflow::model::ArtifactRef;
 use std::fs;
 use std::path::{Path, PathBuf};
+use uuid::Uuid;
 
 #[derive(Clone)]
 pub struct ArtifactManager {
@@ -31,6 +33,25 @@ impl ArtifactManager {
 
     pub fn get_temp_path(&self, filename: &str) -> PathBuf {
         self.base_dir.join("temp").join(filename)
+    }
+
+    pub fn describe(
+        &self,
+        path: &Path,
+        kind: &str,
+        created_by_node: &str,
+        mime: Option<&str>,
+    ) -> Result<ArtifactRef> {
+        let size = fs::metadata(path)?.len();
+        Ok(ArtifactRef {
+            id: Uuid::new_v4().to_string(),
+            kind: kind.into(),
+            path: path.to_string_lossy().into_owned(),
+            mime: mime.map(str::to_string),
+            size,
+            metadata: serde_json::Value::Null,
+            created_by_node: created_by_node.into(),
+        })
     }
 }
 

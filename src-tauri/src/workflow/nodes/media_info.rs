@@ -1,10 +1,9 @@
 use crate::error::{AppError, Result};
 use crate::workflow::artifact::ArtifactManager;
 use crate::workflow::executor::NodeExecutor;
-use crate::workflow::model::Node;
+use crate::workflow::model::{Node, NodeExecutionResult, NodeInputs, NodeValue};
 use async_trait::async_trait;
 use serde_json::Value;
-use std::collections::HashMap;
 use std::process::Stdio;
 use tokio::io::AsyncReadExt;
 use tokio::process::Command;
@@ -66,22 +65,15 @@ impl NodeExecutor for MediaInfoNode {
     async fn execute(
         &self,
         _node: &Node,
-        inputs: &HashMap<String, Value>,
+        inputs: &NodeInputs,
         cancel_token: CancellationToken,
         _artifact_manager: &ArtifactManager,
-    ) -> Result<Value> {
-        let mut file_path = String::new();
-        for val in inputs.values() {
-            if let Some(obj) = val.as_object() {
-                if let Some(p) = obj.get("file_path").and_then(Value::as_str) {
-                    file_path = p.to_string();
-                    break;
-                }
-            } else if let Some(p) = val.as_str() {
-                file_path = p.to_string();
-                break;
-            }
-        }
+    ) -> Result<NodeExecutionResult> {
+        let file_path = inputs
+            .get("in")
+            .and_then(NodeValue::as_path)
+            .unwrap_or_default()
+            .to_string();
 
         if file_path.is_empty() {
             return Err(AppError::Internal(
@@ -108,7 +100,7 @@ impl NodeExecutor for MediaInfoNode {
         let status = tokio::select! {
             _ = cancel_token.cancelled() => {
                 let _ = child.kill().await;
-                return Err(AppError::Internal("Workflow Cancelled".to_string()));
+                return Err(AppError::Cancelled("Workflow cancelled".to_string()));
             }
             res = child.wait() => res
         };
@@ -130,11 +122,11 @@ impl NodeExecutor for MediaInfoNode {
         let stdout_str = String::from_utf8_lossy(&stdout_bytes);
         let info = extract_media_info(&stdout_str)?;
 
-        // Append file_path so downstream nodes can still use it
-        let mut out_obj = info.as_object().unwrap().clone();
-        out_obj.insert("file_path".to_string(), serde_json::json!(file_path));
-
-        Ok(serde_json::Value::Object(out_obj))
+        Ok(NodeExecutionResult {
+            outputs: [("out".into(), NodeValue::Json(info.clone()))].into(),
+            metadata: info,
+            ..NodeExecutionResult::default()
+        })
     }
 }
 

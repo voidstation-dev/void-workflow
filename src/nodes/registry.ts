@@ -87,9 +87,12 @@ export interface ConfigField {
 
 export type NodeCategory = 'INPUT' | 'TEXT' | 'AI' | 'RULES' | 'MEDIA' | 'UTILITY' | 'OUTPUT';
 export type RegistryState = 'canonical' | 'frontend-only';
+export type ExecutionMode = 'runtime' | 'annotation' | 'viewer';
 
 export interface NodeDefinition {
   type: string;
+  version: number;
+  executionMode: ExecutionMode;
   label: string;
   category: NodeCategory;
   icon: IconName;
@@ -98,7 +101,7 @@ export interface NodeDefinition {
   ports: { in: Port[]; out: Port[] };
   configSchema: ConfigField[];
   inspectorTabs: string[];
-  /** false = never executes (e.g. markdownNote is a documentation node). */
+  /** Legacy UI capability. Scheduler participation is owned by executionMode. */
   executable: boolean;
   registryState: RegistryState;
   /**
@@ -115,11 +118,10 @@ export interface NodeDefinition {
 // Minimal but real port + schema entries. Full schemas/ports expand in Phase 5/6.
 const textIn: Port = { id: 'in', label: 'Input', type: 'text', required: true };
 const textOut: Port = { id: 'out', label: 'Output', type: 'text' };
-const anyOut: Port = { id: 'out', label: 'Output', type: 'any' };
 const fileOut: Port = { id: 'out', label: 'Files', type: 'file' };
 const mediaOut: Port = { id: 'out', label: 'Media', type: 'media' };
 
-export const NODE_DEFINITIONS: NodeDefinition[] = [
+const RAW_NODE_DEFINITIONS: Omit<NodeDefinition, 'version' | 'executionMode'>[] = [
   {
     type: 'textInput',
     label: 'Text Input',
@@ -178,7 +180,7 @@ export const NODE_DEFINITIONS: NodeDefinition[] = [
     icon: 'Clock',
     description: 'Pause workflow execution for a number of seconds.',
     keywords: ['delay', 'wait', 'pause', 'sleep', 'timer'],
-    ports: { in: [textIn], out: [textOut] },
+    ports: { in: [{ id: 'in', label: 'Input', type: 'any', required: true }], out: [{ id: 'out', label: 'Output', type: 'any' }] },
     configSchema: [
       { key: 'seconds', label: 'Delay (s)', type: 'number', default: 1, min: 0, step: 0.1 },
     ],
@@ -271,7 +273,7 @@ export const NODE_DEFINITIONS: NodeDefinition[] = [
     icon: 'Info',
     description: 'Probe media metadata (duration, codec, resolution).',
     keywords: ['media', 'info', 'ffprobe', 'metadata', 'video', 'audio'],
-    ports: { in: [{ id: 'in', label: 'Media', type: 'media', required: true }], out: [anyOut] },
+    ports: { in: [{ id: 'in', label: 'Media', type: 'media', required: true }], out: [{ id: 'out', label: 'Metadata', type: 'json' }] },
     // Spec §47: the Inspector shows Summary / Video / Audio / Raw sub-tabs,
     // with Raw FFprobe output as Advanced only. This is the one per-node
     // structural exception — rendered as nested Radix Tabs inside the generic
@@ -446,7 +448,7 @@ export const NODE_DEFINITIONS: NodeDefinition[] = [
     label: 'Preview',
     category: 'MEDIA',
     icon: 'Eye',
-    description: 'Preview media or text inline. (Not executable yet — backend handler pending.)',
+    description: 'Preview the latest upstream result without entering the runtime DAG.',
     keywords: ['preview', 'view', 'inspect', 'media'],
     // Spec §52: accepts any single input and previews it by type (Text /
     // JSON / Image / Audio / Video). The `any` input port lets any upstream
@@ -483,6 +485,19 @@ export const NODE_DEFINITIONS: NodeDefinition[] = [
     },
   },
 ];
+
+/** Runtime Contract V2 metadata is assigned in one place so every node has an
+ * explicit schema version and scheduler participation mode. */
+export const NODE_DEFINITIONS: NodeDefinition[] = RAW_NODE_DEFINITIONS.map((definition) => ({
+  ...definition,
+  version: 1,
+  executionMode:
+    definition.type === 'markdownNote'
+      ? 'annotation'
+      : definition.type === 'preview'
+        ? 'viewer'
+        : 'runtime',
+}));
 
 export const NODE_DEFINITION_MAP: Record<string, NodeDefinition> = Object.fromEntries(
   NODE_DEFINITIONS.map((def) => [def.type, def]),

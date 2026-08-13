@@ -1,28 +1,17 @@
 use crate::error::{AppError, Result};
 use crate::workflow::artifact::ArtifactManager;
 use crate::workflow::executor::NodeExecutor;
-use crate::workflow::model::Node;
+use crate::workflow::model::{Node, NodeExecutionResult, NodeInputs, NodeValue};
 use async_trait::async_trait;
 use serde_json::Value;
-use std::collections::HashMap;
 use std::env;
 use tokio_util::sync::CancellationToken;
 
 pub struct AIScriptNode;
 
-pub fn interpolate_prompt(mut prompt: String, inputs: &HashMap<String, Value>) -> String {
+pub fn interpolate_prompt(mut prompt: String, inputs: &NodeInputs) -> String {
     for (key, val) in inputs {
-        let val_str = if let Some(s) = val.as_str() {
-            s.to_string()
-        } else if let Some(obj) = val.as_object() {
-            if let Some(s) = obj.get("output").and_then(Value::as_str) {
-                s.to_string()
-            } else {
-                val.to_string()
-            }
-        } else {
-            val.to_string()
-        };
+        let val_str = val.as_text();
 
         let target = format!("{{{{{}}}}}", key); // e.g. {{text}}
         prompt = prompt.replace(&target, &val_str);
@@ -35,20 +24,22 @@ impl NodeExecutor for AIScriptNode {
     async fn execute(
         &self,
         node: &Node,
-        inputs: &HashMap<String, Value>,
+        inputs: &NodeInputs,
         _cancel_token: CancellationToken,
         _artifact_manager: &ArtifactManager,
-    ) -> Result<Value> {
+    ) -> Result<NodeExecutionResult> {
         let system_prompt = node
             .data
             .extra
-            .get("system_prompt")
+            .get("systemInstructions")
+            .or_else(|| node.data.extra.get("system_prompt"))
             .and_then(Value::as_str)
             .unwrap_or("");
         let user_prompt_template = node
             .data
             .extra
-            .get("user_prompt")
+            .get("prompt")
+            .or_else(|| node.data.extra.get("user_prompt"))
             .and_then(Value::as_str)
             .unwrap_or("")
             .to_string();
@@ -107,9 +98,10 @@ impl NodeExecutor for AIScriptNode {
             .unwrap_or("")
             .to_string();
 
-        Ok(serde_json::json!({
-            "output": generated_text
-        }))
+        Ok(NodeExecutionResult::output(
+            "out",
+            NodeValue::Text(generated_text),
+        ))
     }
 }
 
@@ -121,12 +113,12 @@ mod tests {
     fn test_prompt_interpolation_only() {
         let template =
             "Hello {{name}}, you are {{age}} years old. Here is your text: {{text}}".to_string();
-        let mut inputs = HashMap::new();
-        inputs.insert("name".to_string(), serde_json::json!("Alice"));
-        inputs.insert("age".to_string(), serde_json::json!(30));
+        let mut inputs = NodeInputs::new();
+        inputs.insert("name".to_string(), NodeValue::Text("Alice".into()));
+        inputs.insert("age".to_string(), NodeValue::Number(30.0));
         inputs.insert(
             "text".to_string(),
-            serde_json::json!({ "output": "Some generated text" }),
+            NodeValue::Text("Some generated text".into()),
         );
 
         let result = interpolate_prompt(template, &inputs);

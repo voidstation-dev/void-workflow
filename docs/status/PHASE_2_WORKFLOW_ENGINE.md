@@ -1,5 +1,8 @@
 # Phase 2 — Workflow Engine
 
+> Historical MVP1/prototype status. Runtime Contract V2 supersedes the old
+> node/edge contract; see `NODE_RUNTIME_IMPLEMENTATION_STATUS.md`.
+
 Status: DONE
 
 Progress: 100%

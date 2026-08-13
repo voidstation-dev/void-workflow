@@ -1,0 +1,9 @@
+{
+  "nodes": [
+    { "id": "source", "type": "textInput", "data": { "label": "Prompt", "text": "legacy" } },
+    { "id": "target", "type": "textTransform", "data": { "label": "Uppercase", "operation": "uppercase" } }
+  ],
+  "edges": [
+    { "id": "source-target", "source": "source", "target": "target" }
+  ]
+}

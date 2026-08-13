@@ -108,7 +108,7 @@ function BaseNodeComponent({ id, type, data, selected }: NodeProps<AppNode>) {
     >
       {showToolbar && (
         <Suspense fallback={null}>
-          <NodeFloatingToolbar nodeId={id} isExecutable={!!def.executable} />
+          <NodeFloatingToolbar nodeId={id} isExecutable={def.executionMode === 'runtime'} />
         </Suspense>
       )}
       {/* NodeHeader — icon + title (always present). No ⋯ menu yet (Phase 6

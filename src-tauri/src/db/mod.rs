@@ -42,10 +42,16 @@ impl Db {
                 project_id INTEGER,
                 status TEXT NOT NULL,
                 started_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                completed_at DATETIME
+                completed_at DATETIME,
+                error TEXT
             )",
             [],
         )?;
+        // Existing MVP databases predate the error column. SQLite has no
+        // `ADD COLUMN IF NOT EXISTS`; duplicate-column is intentionally ignored.
+        let _ = self
+            .conn
+            .execute("ALTER TABLE node_executions ADD COLUMN error TEXT", []);
 
         self.conn.execute(
             "CREATE TABLE IF NOT EXISTS node_executions (
@@ -55,6 +61,34 @@ impl Db {
                 status TEXT NOT NULL,
                 started_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                 completed_at DATETIME
+            )",
+            [],
+        )?;
+
+        self.conn.execute(
+            "CREATE TABLE IF NOT EXISTS node_results (
+                id INTEGER PRIMARY KEY,
+                run_id INTEGER NOT NULL,
+                node_id TEXT NOT NULL,
+                result_json TEXT NOT NULL,
+                duration_ms INTEGER NOT NULL,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            )",
+            [],
+        )?;
+
+        self.conn.execute(
+            "CREATE TABLE IF NOT EXISTS run_artifacts (
+                id INTEGER PRIMARY KEY,
+                run_id INTEGER NOT NULL,
+                node_id TEXT NOT NULL,
+                artifact_id TEXT NOT NULL,
+                kind TEXT NOT NULL,
+                path TEXT NOT NULL,
+                mime TEXT,
+                size INTEGER NOT NULL,
+                metadata_json TEXT NOT NULL,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
             )",
             [],
         )?;
@@ -93,9 +127,9 @@ impl Db {
 
         match graph_json {
             Ok(json) => Ok(json),
-            Err(rusqlite::Error::QueryReturnedNoRows) => {
-                Ok(String::from("{\"nodes\":[], \"edges\":[]}"))
-            }
+            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(String::from(
+                "{\"schemaVersion\":2,\"nodes\":[],\"edges\":[]}",
+            )),
             Err(e) => Err(crate::error::AppError::Db(e)),
         }
     }

@@ -1,10 +1,9 @@
 use crate::error::Result;
 use crate::workflow::artifact::ArtifactManager;
 use crate::workflow::executor::NodeExecutor;
-use crate::workflow::model::Node;
+use crate::workflow::model::{Node, NodeExecutionResult, NodeInputs, NodeValue};
 use async_trait::async_trait;
 use serde_json::Value;
-use std::collections::HashMap;
 use tokio_util::sync::CancellationToken;
 
 pub struct TextTransformNode;
@@ -14,18 +13,11 @@ impl NodeExecutor for TextTransformNode {
     async fn execute(
         &self,
         node: &Node,
-        inputs: &HashMap<String, Value>,
+        inputs: &NodeInputs,
         _cancel_token: CancellationToken,
         _artifact_manager: &ArtifactManager,
-    ) -> Result<Value> {
-        let mut combined_input = String::new();
-        for val in inputs.values() {
-            if let Some(obj) = val.as_object() {
-                if let Some(out) = obj.get("output").and_then(Value::as_str) {
-                    combined_input.push_str(out);
-                }
-            }
-        }
+    ) -> Result<NodeExecutionResult> {
+        let combined_input = inputs.get("in").map(NodeValue::as_text).unwrap_or_default();
 
         let op = node
             .data
@@ -40,6 +32,6 @@ impl NodeExecutor for TextTransformNode {
             _ => combined_input,
         };
 
-        Ok(serde_json::json!({ "output": output }))
+        Ok(NodeExecutionResult::output("out", NodeValue::Text(output)))
     }
 }

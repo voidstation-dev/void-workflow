@@ -1,23 +1,27 @@
 use super::artifact::ArtifactManager;
 use super::graph::ExecutableGraph;
-use super::model::{Node, NodeState};
-use crate::error::Result;
+use super::model::{Node, NodeExecutionResult, NodeInputs, NodeState};
+use crate::error::{AppError, Result};
 use async_trait::async_trait;
 use serde::Serialize;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
+use std::time::Instant;
 use tauri::{AppHandle, Emitter, Manager};
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
 #[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct NodeStatusEvent {
     pub run_id: i64,
     pub node_id: String,
     pub status: String,
+    pub message: Option<String>,
 }
 
 #[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct LogEvent {
     pub run_id: i64,
     pub node_id: Option<String>,
@@ -25,19 +29,95 @@ pub struct LogEvent {
     pub level: String,
 }
 
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NodeResultEvent {
+    pub run_id: i64,
+    pub node_id: String,
+    #[serde(flatten)]
+    pub result: NodeExecutionResult,
+    pub duration_ms: u64,
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RunStatusEvent {
+    pub run_id: i64,
+    pub status: String,
+    pub error: Option<String>,
+    pub duration_ms: u64,
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NodeProgressEvent {
+    pub run_id: i64,
+    pub node_id: String,
+    pub progress: f32,
+}
+
 #[async_trait]
 pub trait NodeExecutor: Send + Sync {
     async fn execute(
         &self,
         node: &Node,
-        inputs: &HashMap<String, serde_json::Value>,
+        inputs: &NodeInputs,
         cancel_token: CancellationToken,
         artifact_manager: &ArtifactManager,
-    ) -> Result<serde_json::Value>;
+    ) -> Result<NodeExecutionResult>;
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ExecutionMode {
+    Execute,
+    Annotation,
+    Viewer,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PortKind {
+    Text,
+    Number,
+    Boolean,
+    Json,
+    File,
+    Media,
+    Audio,
+    Video,
+    Artifact,
+    Any,
+}
+
+#[derive(Debug, Clone)]
+pub struct NodeSpec {
+    pub version: u32,
+    pub execution_mode: ExecutionMode,
+    pub inputs: HashMap<String, PortKind>,
+    pub required_inputs: HashSet<String>,
+    pub outputs: HashMap<String, PortKind>,
+}
+
+impl NodeSpec {
+    pub fn execute(inputs: &[(&str, PortKind)], outputs: &[(&str, PortKind)]) -> Self {
+        Self {
+            version: 1,
+            execution_mode: ExecutionMode::Execute,
+            inputs: inputs
+                .iter()
+                .map(|(id, kind)| ((*id).into(), *kind))
+                .collect(),
+            required_inputs: inputs.iter().map(|(id, _)| (*id).into()).collect(),
+            outputs: outputs
+                .iter()
+                .map(|(id, kind)| ((*id).into(), *kind))
+                .collect(),
+        }
+    }
 }
 
 pub struct NodeRegistry {
     executors: HashMap<String, Box<dyn NodeExecutor>>,
+    specs: HashMap<String, NodeSpec>,
 }
 
 impl Default for NodeRegistry {
@@ -50,18 +130,40 @@ impl NodeRegistry {
     pub fn new() -> Self {
         Self {
             executors: HashMap::new(),
+            specs: HashMap::new(),
         }
     }
 
-    pub fn register<T: NodeExecutor + 'static>(&mut self, node_type: &str, executor: T) {
+    pub fn register<T: NodeExecutor + 'static>(
+        &mut self,
+        node_type: &str,
+        spec: NodeSpec,
+        executor: T,
+    ) {
+        self.specs.insert(node_type.to_string(), spec);
         self.executors
             .insert(node_type.to_string(), Box::new(executor));
     }
 
+    pub fn register_non_runtime(&mut self, node_type: &str, spec: NodeSpec) {
+        self.specs.insert(node_type.to_string(), spec);
+    }
+
     pub fn get(&self, node_type: &str) -> Option<&dyn NodeExecutor> {
-        self.executors.get(node_type).map(|b| b.as_ref())
+        self.executors.get(node_type).map(|value| value.as_ref())
+    }
+
+    pub fn spec(&self, node_type: &str) -> Option<&NodeSpec> {
+        self.specs.get(node_type)
+    }
+
+    #[cfg(test)]
+    pub fn specs(&self) -> &HashMap<String, NodeSpec> {
+        &self.specs
     }
 }
+
+type TaskResult = (String, Result<NodeExecutionResult>, u64);
 
 pub struct Scheduler {
     graph: ExecutableGraph,
@@ -90,244 +192,408 @@ impl Scheduler {
     }
 
     pub async fn run(&self, cancel_token: CancellationToken) -> Result<()> {
-        let mut states: HashMap<String, NodeState> = HashMap::new();
-        let mut outputs: HashMap<String, serde_json::Value> = HashMap::new();
-        let mut in_degree = HashMap::new();
+        let started = Instant::now();
+        self.emit_run("running", None, 0);
 
-        for node_id in self.graph.nodes.keys() {
-            states.insert(node_id.clone(), NodeState::Pending);
-            in_degree.insert(
-                node_id.clone(),
-                self.graph.reverse_adjacency.get(node_id).unwrap().len(),
-            );
-        }
+        let mut states: HashMap<String, NodeState> = self
+            .graph
+            .nodes
+            .keys()
+            .map(|id| (id.clone(), NodeState::Pending))
+            .collect();
+        let mut outputs: HashMap<String, NodeExecutionResult> = HashMap::new();
+        let mut in_degree: HashMap<String, usize> = self
+            .graph
+            .nodes
+            .keys()
+            .map(|id| {
+                (
+                    id.clone(),
+                    self.graph.reverse_adjacency.get(id).map_or(0, Vec::len),
+                )
+            })
+            .collect();
+        let (tx, mut rx) = mpsc::channel::<TaskResult>(32);
+        let mut active_tasks = 0usize;
 
-        let (tx, mut rx) = mpsc::channel(32);
-        let mut active_tasks = 0;
-
-        // Start nodes with 0 in-degree
-        for (node_id, deg) in &in_degree {
-            if *deg == 0 {
-                self.spawn_node(node_id.clone(), &outputs, tx.clone(), cancel_token.clone());
-                active_tasks += 1;
-            }
+        for node_id in self
+            .graph
+            .topological_order
+            .iter()
+            .filter(|id| in_degree[*id] == 0)
+        {
+            self.spawn_node(node_id.clone(), &outputs, tx.clone(), cancel_token.clone());
+            active_tasks += 1;
         }
 
         while active_tasks > 0 {
-            if let Some((node_id, result)) = rx.recv().await {
-                active_tasks -= 1;
+            let Some((node_id, result, duration_ms)) = rx.recv().await else {
+                break;
+            };
+            active_tasks -= 1;
+            match result {
+                Ok(result) => {
+                    states.insert(node_id.clone(), NodeState::Success);
+                    self.emit_node_status(&node_id, "success", None);
+                    let _ = self.app_handle.emit(
+                        "node-progress",
+                        NodeProgressEvent {
+                            run_id: self.run_id,
+                            node_id: node_id.clone(),
+                            progress: 1.0,
+                        },
+                    );
+                    self.persist_node_result(&node_id, &result, duration_ms);
+                    let event = NodeResultEvent {
+                        run_id: self.run_id,
+                        node_id: node_id.clone(),
+                        result: result.clone(),
+                        duration_ms,
+                    };
+                    let _ = self.app_handle.emit("node-result", &event);
+                    outputs.insert(node_id.clone(), result);
 
-                match result {
-                    Ok(val) => {
-                        states.insert(node_id.clone(), NodeState::Success);
-                        outputs.insert(node_id.clone(), val);
-
-                        let _ = self.app_handle.emit(
-                            "node-status",
-                            NodeStatusEvent {
-                                run_id: self.run_id,
-                                node_id: node_id.clone(),
-                                status: "Success".to_string(),
-                            },
-                        );
-
-                        // Save to DB
-                        let state = self.app_handle.state::<crate::AppState>();
-                        if let Ok(db_guard) = state.db.lock() {
-                            if let Some(db) = db_guard.as_ref() {
-                                let _ = db.conn.execute(
-                                    "UPDATE node_executions SET status = 'Success', completed_at = CURRENT_TIMESTAMP WHERE run_id = ?1 AND node_id = ?2",
-                                    rusqlite::params![self.run_id, node_id],
-                                );
-                            }
-                        }
-
-                        // Decrement in-degree of neighbors
-                        if let Some(neighbors) = self.graph.adjacency.get(&node_id) {
-                            for neighbor in neighbors {
-                                let deg = in_degree.get_mut(neighbor).unwrap();
-                                *deg -= 1;
-                                if *deg == 0 {
-                                    self.spawn_node(
-                                        neighbor.clone(),
-                                        &outputs,
-                                        tx.clone(),
-                                        cancel_token.clone(),
-                                    );
-                                    active_tasks += 1;
-                                }
-                            }
+                    for neighbor in self.graph.adjacency.get(&node_id).into_iter().flatten() {
+                        let degree = in_degree.get_mut(neighbor).unwrap();
+                        *degree -= 1;
+                        if *degree == 0 && states.get(neighbor) == Some(&NodeState::Pending) {
+                            self.spawn_node(
+                                neighbor.clone(),
+                                &outputs,
+                                tx.clone(),
+                                cancel_token.clone(),
+                            );
+                            active_tasks += 1;
                         }
                     }
-                    Err(e) => {
-                        states.insert(node_id.clone(), NodeState::Failed);
-
-                        let _ = self.app_handle.emit(
-                            "node-status",
-                            NodeStatusEvent {
-                                run_id: self.run_id,
-                                node_id: node_id.clone(),
-                                status: "Failed".to_string(),
-                            },
-                        );
-
-                        let _ = self.app_handle.emit(
-                            "workflow-log",
-                            LogEvent {
-                                run_id: self.run_id,
-                                node_id: Some(node_id.clone()),
-                                message: format!("Node failed: {}", e),
-                                level: "error".to_string(),
-                            },
-                        );
-
-                        // Save to DB
-                        let state = self.app_handle.state::<crate::AppState>();
-                        if let Ok(db_guard) = state.db.lock() {
-                            if let Some(db) = db_guard.as_ref() {
-                                let _ = db.conn.execute(
-                                    "UPDATE node_executions SET status = 'Failed', completed_at = CURRENT_TIMESTAMP WHERE run_id = ?1 AND node_id = ?2",
-                                    rusqlite::params![self.run_id, node_id],
-                                );
-                                let _ = db.conn.execute(
-                                    "INSERT INTO run_logs (run_id, node_id, message, level) VALUES (?1, ?2, ?3, 'error')",
-                                    rusqlite::params![self.run_id, node_id, format!("Node failed: {}", e)],
-                                );
-                            }
-                        }
-
-                        // Cascade skip
-                        self.cascade_skip(&node_id, &mut states);
-                    }
+                }
+                Err(error)
+                    if matches!(error, AppError::Cancelled(_)) || cancel_token.is_cancelled() =>
+                {
+                    states.insert(node_id.clone(), NodeState::Cancelled);
+                    self.emit_node_status(&node_id, "cancelled", Some(error.to_string()));
+                }
+                Err(error) => {
+                    states.insert(node_id.clone(), NodeState::Failed);
+                    let message = error.to_string();
+                    self.emit_node_status(&node_id, "failed", Some(message.clone()));
+                    let _ = self.app_handle.emit(
+                        "node-failed",
+                        NodeStatusEvent {
+                            run_id: self.run_id,
+                            node_id: node_id.clone(),
+                            status: "failed".into(),
+                            message: Some(message.clone()),
+                        },
+                    );
+                    let _ = self.app_handle.emit(
+                        "workflow-log",
+                        LogEvent {
+                            run_id: self.run_id,
+                            node_id: Some(node_id.clone()),
+                            message: message.clone(),
+                            level: "error".into(),
+                        },
+                    );
+                    self.persist_node_terminal(&node_id, "Failed", Some(&message));
+                    self.cascade_skip(&node_id, &mut states);
                 }
             }
         }
 
-        let mut final_status = "Completed";
-        for state in states.values() {
-            if *state == NodeState::Failed {
-                final_status = "Failed";
-                break;
-            }
-        }
-
-        if cancel_token.is_cancelled() {
-            final_status = "Cancelled";
-        }
-
-        // Save final run status
-        let state = self.app_handle.state::<crate::AppState>();
-        if let Ok(db_guard) = state.db.lock() {
-            if let Some(db) = db_guard.as_ref() {
-                let _ = db.conn.execute(
-                    "UPDATE runs SET status = ?1, completed_at = CURRENT_TIMESTAMP WHERE id = ?2",
-                    rusqlite::params![final_status, self.run_id],
-                );
-            }
-        }
-
-        {
-            let mut tasks = state.running_tasks.lock().unwrap();
-            tasks.remove(&self.run_id);
-        }
-
+        let duration_ms = started.elapsed().as_millis() as u64;
+        let (status, error) = if cancel_token.is_cancelled() {
+            ("cancelled", None)
+        } else if states.values().any(|state| *state == NodeState::Failed) {
+            ("failed", Some("One or more nodes failed".to_string()))
+        } else {
+            ("completed", None)
+        };
+        self.persist_run_terminal(status);
+        self.emit_run(status, error, duration_ms);
+        let terminal_event = match status {
+            "completed" => "run-completed",
+            "failed" => "run-failed",
+            _ => "run-cancelled",
+        };
+        let _ = self.app_handle.emit(
+            terminal_event,
+            RunStatusEvent {
+                run_id: self.run_id,
+                status: status.into(),
+                error: None,
+                duration_ms,
+            },
+        );
+        self.app_handle
+            .state::<crate::AppState>()
+            .running_tasks
+            .lock()
+            .unwrap()
+            .remove(&self.run_id);
         Ok(())
     }
 
     fn spawn_node(
         &self,
         node_id: String,
-        outputs: &HashMap<String, serde_json::Value>,
-        tx: mpsc::Sender<(String, Result<serde_json::Value>)>,
+        outputs: &HashMap<String, NodeExecutionResult>,
+        tx: mpsc::Sender<TaskResult>,
         cancel_token: CancellationToken,
     ) {
-        let node = self.graph.nodes.get(&node_id).unwrap().clone();
+        let node = self.graph.nodes[&node_id].clone();
+        let inputs_result = self.resolve_inputs(&node_id, outputs);
         let registry = self.registry.clone();
-
-        // Prepare inputs from dependencies
-        let mut inputs = HashMap::new();
-        if let Some(deps) = self.graph.reverse_adjacency.get(&node_id) {
-            for dep_id in deps {
-                if let Some(out) = outputs.get(dep_id) {
-                    inputs.insert(dep_id.clone(), out.clone());
-                }
-            }
-        }
-
-        let run_id = self.run_id;
-        let app_handle = self.app_handle.clone();
-
-        let _ = app_handle.emit(
-            "node-status",
-            NodeStatusEvent {
-                run_id,
+        let artifact_manager = self.artifact_manager.clone();
+        self.emit_node_status(&node_id, "running", None);
+        let _ = self.app_handle.emit(
+            "node-progress",
+            NodeProgressEvent {
+                run_id: self.run_id,
                 node_id: node_id.clone(),
-                status: "Running".to_string(),
+                progress: 0.0,
             },
         );
-
-        // Save to DB
-        let state = app_handle.state::<crate::AppState>();
-        if let Ok(db_guard) = state.db.lock() {
-            if let Some(db) = db_guard.as_ref() {
-                let _ = db.conn.execute(
-                    "INSERT INTO node_executions (run_id, node_id, status) VALUES (?1, ?2, 'Running')",
-                    rusqlite::params![run_id, node_id],
-                );
-            }
-        }
-
-        let artifact_manager = self.artifact_manager.clone();
+        let _ = self.app_handle.emit(
+            "node-started",
+            NodeStatusEvent {
+                run_id: self.run_id,
+                node_id: node_id.clone(),
+                status: "running".into(),
+                message: None,
+            },
+        );
+        self.persist_node_started(&node_id);
 
         tokio::spawn(async move {
-            let res = if cancel_token.is_cancelled() {
-                Err(crate::error::AppError::Internal(
-                    "Workflow Cancelled".to_string(),
-                ))
-            } else if let Some(executor) = registry.get(&node.node_type) {
-                // Here we could pass an event emitter down to the node so it can stream progress
-                executor
-                    .execute(&node, &inputs, cancel_token, &artifact_manager)
-                    .await
-            } else {
-                Err(crate::error::AppError::Internal(format!(
-                    "No executor for {}",
-                    node.node_type
-                )))
+            let started = Instant::now();
+            let result = match inputs_result {
+                Err(error) => Err(error),
+                Ok(_inputs) if cancel_token.is_cancelled() => {
+                    Err(AppError::Cancelled("Workflow cancelled".into()))
+                }
+                Ok(inputs) => match registry.get(&node.node_type) {
+                    Some(executor) => {
+                        executor
+                            .execute(&node, &inputs, cancel_token, &artifact_manager)
+                            .await
+                    }
+                    None => Err(AppError::Internal(format!(
+                        "No executor for {}",
+                        node.node_type
+                    ))),
+                },
             };
-            let _ = tx.send((node_id, res)).await;
+            let _ = tx
+                .send((node_id, result, started.elapsed().as_millis() as u64))
+                .await;
         });
     }
 
-    fn cascade_skip(&self, node_id: &str, states: &mut HashMap<String, NodeState>) {
-        if let Some(neighbors) = self.graph.adjacency.get(node_id) {
-            for neighbor in neighbors {
-                if states.get(neighbor) == Some(&NodeState::Pending) {
-                    states.insert(neighbor.clone(), NodeState::Skipped);
-
-                    let _ = self.app_handle.emit(
-                        "node-status",
-                        NodeStatusEvent {
-                            run_id: self.run_id,
-                            node_id: neighbor.clone(),
-                            status: "Skipped".to_string(),
-                        },
-                    );
-
-                    // Save to DB
-                    let state = self.app_handle.state::<crate::AppState>();
-                    if let Ok(db_guard) = state.db.lock() {
-                        if let Some(db) = db_guard.as_ref() {
-                            let _ = db.conn.execute(
-                                "INSERT INTO node_executions (run_id, node_id, status, completed_at) VALUES (?1, ?2, 'Skipped', CURRENT_TIMESTAMP)",
-                                rusqlite::params![self.run_id, neighbor],
-                            );
-                        }
-                    }
-
-                    self.cascade_skip(neighbor, states);
-                }
+    fn resolve_inputs(
+        &self,
+        node_id: &str,
+        outputs: &HashMap<String, NodeExecutionResult>,
+    ) -> Result<NodeInputs> {
+        let mut inputs = NodeInputs::new();
+        for binding in self
+            .graph
+            .incoming_bindings
+            .get(node_id)
+            .into_iter()
+            .flatten()
+        {
+            let source_result = outputs.get(&binding.source).ok_or_else(|| {
+                AppError::Internal(format!("Missing result for dependency {}", binding.source))
+            })?;
+            let value = source_result
+                .outputs
+                .get(&binding.source_port)
+                .ok_or_else(|| {
+                    AppError::Internal(format!(
+                        "Node {} did not produce declared output port {}",
+                        binding.source, binding.source_port
+                    ))
+                })?;
+            if inputs
+                .insert(binding.target_port.clone(), value.clone())
+                .is_some()
+            {
+                return Err(AppError::Internal(format!(
+                    "Duplicate value for input {}.{}",
+                    node_id, binding.target_port
+                )));
             }
+        }
+        Ok(inputs)
+    }
+
+    fn emit_node_status(&self, node_id: &str, status: &str, message: Option<String>) {
+        let _ = self.app_handle.emit(
+            "node-status",
+            NodeStatusEvent {
+                run_id: self.run_id,
+                node_id: node_id.into(),
+                status: status.into(),
+                message,
+            },
+        );
+    }
+
+    fn emit_run(&self, status: &str, error: Option<String>, duration_ms: u64) {
+        let event = RunStatusEvent {
+            run_id: self.run_id,
+            status: status.into(),
+            error,
+            duration_ms,
+        };
+        let _ = self.app_handle.emit("run-status", &event);
+        if status == "running" {
+            let _ = self.app_handle.emit("run-started", event);
+        }
+    }
+
+    fn cascade_skip(&self, node_id: &str, states: &mut HashMap<String, NodeState>) {
+        for neighbor in self.graph.adjacency.get(node_id).into_iter().flatten() {
+            if states.get(neighbor) == Some(&NodeState::Pending) {
+                states.insert(neighbor.clone(), NodeState::Skipped);
+                self.emit_node_status(
+                    neighbor,
+                    "skipped",
+                    Some("Upstream dependency failed".into()),
+                );
+                let _ = self.app_handle.emit(
+                    "node-skipped",
+                    NodeStatusEvent {
+                        run_id: self.run_id,
+                        node_id: neighbor.clone(),
+                        status: "skipped".into(),
+                        message: Some("Upstream dependency failed".into()),
+                    },
+                );
+                self.persist_node_terminal(neighbor, "Skipped", None);
+                self.cascade_skip(neighbor, states);
+            }
+        }
+    }
+
+    fn with_db(&self, action: impl FnOnce(&rusqlite::Connection)) {
+        if let Ok(guard) = self.app_handle.state::<crate::AppState>().db.lock() {
+            if let Some(db) = guard.as_ref() {
+                action(&db.conn);
+            }
+        }
+    }
+
+    fn persist_node_started(&self, node_id: &str) {
+        self.with_db(|conn| {
+            let _ = conn.execute(
+                "INSERT INTO node_executions (run_id, node_id, status) VALUES (?1, ?2, 'Running')",
+                rusqlite::params![self.run_id, node_id],
+            );
+        });
+    }
+
+    fn persist_node_terminal(&self, node_id: &str, status: &str, error: Option<&str>) {
+        self.with_db(|conn| { let _ = conn.execute("UPDATE node_executions SET status=?1, completed_at=CURRENT_TIMESTAMP, error=?2 WHERE run_id=?3 AND node_id=?4", rusqlite::params![status, error, self.run_id, node_id]); });
+    }
+
+    fn persist_node_result(&self, node_id: &str, result: &NodeExecutionResult, duration_ms: u64) {
+        self.persist_node_terminal(node_id, "Success", None);
+        let json = serde_json::to_string(result).unwrap_or_else(|_| "{}".into());
+        self.with_db(|conn| {
+            let _ = conn.execute("INSERT INTO node_results (run_id, node_id, result_json, duration_ms) VALUES (?1, ?2, ?3, ?4)", rusqlite::params![self.run_id, node_id, json, duration_ms as i64]);
+            for artifact in &result.artifacts {
+                let metadata = artifact.metadata.to_string();
+                let _ = conn.execute("INSERT INTO run_artifacts (run_id, node_id, artifact_id, kind, path, mime, size, metadata_json) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)", rusqlite::params![self.run_id, node_id, artifact.id, artifact.kind, artifact.path, artifact.mime, artifact.size as i64, metadata]);
+            }
+        });
+    }
+
+    fn persist_run_terminal(&self, status: &str) {
+        self.with_db(|conn| {
+            let _ = conn.execute(
+                "UPDATE runs SET status=?1, completed_at=CURRENT_TIMESTAMP WHERE id=?2",
+                rusqlite::params![status, self.run_id],
+            );
+        });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::workflow::graph::EdgeBinding;
+    use crate::workflow::model::NodeValue;
+
+    #[test]
+    fn declared_source_port_maps_to_declared_target_port() {
+        let result = NodeExecutionResult::output("caption", NodeValue::Text("hello".into()));
+        let binding = EdgeBinding {
+            source: "source".into(),
+            source_port: "caption".into(),
+            target: "target".into(),
+            target_port: "prompt".into(),
+        };
+        let mut inputs = NodeInputs::new();
+        inputs.insert(
+            binding.target_port,
+            result.outputs[&binding.source_port].clone(),
+        );
+        assert_eq!(inputs["prompt"], NodeValue::Text("hello".into()));
+        assert!(!inputs.contains_key("source"));
+    }
+
+    #[test]
+    fn rust_registry_matches_shared_contract_fixture() {
+        let fixture: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../contracts/node-runtime-contract.json"
+        ))
+        .unwrap();
+        let object = fixture.as_object().unwrap();
+        assert_eq!(object.len(), crate::workflow::REGISTRY.specs().len());
+        for (node_type, expected) in object {
+            let spec = crate::workflow::REGISTRY.spec(node_type).unwrap();
+            let mode = match spec.execution_mode {
+                ExecutionMode::Execute => "runtime",
+                ExecutionMode::Annotation => "annotation",
+                ExecutionMode::Viewer => "viewer",
+            };
+            assert_eq!(expected["version"], spec.version);
+            assert_eq!(expected["executionMode"], mode);
+            let kind = |value: PortKind| match value {
+                PortKind::Text => "text",
+                PortKind::Number => "number",
+                PortKind::Boolean => "boolean",
+                PortKind::Json => "json",
+                PortKind::File => "file",
+                PortKind::Media => "media",
+                PortKind::Audio => "audio",
+                PortKind::Video => "video",
+                PortKind::Artifact => "artifact",
+                PortKind::Any => "any",
+            };
+            for (port, expected_kind) in expected["inputs"].as_object().unwrap() {
+                assert_eq!(expected_kind, kind(spec.inputs[port]));
+            }
+            for (port, expected_kind) in expected["outputs"].as_object().unwrap() {
+                assert_eq!(expected_kind, kind(spec.outputs[port]));
+            }
+            assert_eq!(
+                expected["inputs"].as_object().unwrap().len(),
+                spec.inputs.len()
+            );
+            let expected_required: HashSet<String> = expected["requiredInputs"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|value| value.as_str().unwrap().to_string())
+                .collect();
+            assert_eq!(expected_required, spec.required_inputs);
+            assert_eq!(
+                expected["outputs"].as_object().unwrap().len(),
+                spec.outputs.len()
+            );
         }
     }
 }

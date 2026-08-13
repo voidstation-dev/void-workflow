@@ -39,7 +39,7 @@ export function NodeLibraryItem({ def, onKeyDown }: NodeLibraryItemProps) {
   const badge: Badge =
     def.type === 'markdownNote'
       ? 'note'
-      : def.registryState === 'frontend-only' && def.executable
+      : def.registryState === 'frontend-only' && def.executionMode === 'runtime'
         ? 'not-executable'
         : null;
 

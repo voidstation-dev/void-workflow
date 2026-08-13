@@ -76,6 +76,7 @@ export default function NodeDetailBody({ nodeId, onClose }: { nodeId: string; on
   const logs = useWorkflowStore((s) => s.logs);
   const updateNodeData = useWorkflowStore((s) => s.updateNodeData);
   const edges = useWorkflowStore((s) => s.edges);
+  const nodeResults = useWorkflowStore((s) => s.nodeResults);
 
   const def = node?.type ? NODE_DEFINITION_MAP[node.type] : undefined;
 
@@ -91,8 +92,8 @@ export default function NodeDetailBody({ nodeId, onClose }: { nodeId: string; on
     // Configure is always present (every node has a name + most have fields).
     out.push({ id: 'configure', label: 'Configure' });
     if (def.ports.in.length > 0) out.push({ id: 'input', label: 'Input' });
-    if (def.ports.out.length > 0 || def.executable) out.push({ id: 'output', label: 'Output' });
-    if (def.executable) out.push({ id: 'run', label: 'Run' });
+    if (def.ports.out.length > 0 || def.executionMode !== 'annotation') out.push({ id: 'output', label: 'Output' });
+    if (def.executionMode === 'runtime') out.push({ id: 'run', label: 'Run' });
     if (isPreviewCapable(def)) out.push({ id: 'preview', label: 'Preview' });
     return out;
   }, [def]);
@@ -172,6 +173,9 @@ export default function NodeDetailBody({ nodeId, onClose }: { nodeId: string; on
   // Output tab: latest per-node status + this node's log lines (real store
   // state). Honest "no output yet" when idle.
   const nodeLogs = logs.filter((l) => l.nodeId === nodeId);
+  const ownResult = nodeResults[nodeId];
+  const upstreamResult = upstreamEdges[0] ? nodeResults[upstreamEdges[0].source] : undefined;
+  const visibleResult = ownResult ?? (def.type === 'preview' ? upstreamResult : undefined);
 
   const durationLabel =
     status?.startedAt != null && status?.endedAt != null
@@ -341,6 +345,13 @@ export default function NodeDetailBody({ nodeId, onClose }: { nodeId: string; on
                     No output captured yet. Run the workflow to produce a result.
                   </p>
                 )}
+                {visibleResult && (
+                  <InspectorSection title="Runtime value">
+                    <pre className="max-h-64 overflow-auto whitespace-pre-wrap break-words rounded-control bg-surface-input p-2 text-[11px] text-text-secondary">
+                      {JSON.stringify(visibleResult, null, 2)}
+                    </pre>
+                  </InspectorSection>
+                )}
               </div>
             </TabsContent>
           )}
@@ -349,7 +360,7 @@ export default function NodeDetailBody({ nodeId, onClose }: { nodeId: string; on
           {tabs.some((t) => t.id === 'run') && (
             <TabsContent value="run">
               <div className="flex flex-col gap-2">
-                {!def.executable ? (
+                {def.executionMode !== 'runtime' ? (
                   <p className="text-[12px] text-text-muted">This node does not execute.</p>
                 ) : !status || status.status === 'idle' ? (
                   <p className="text-[12px] text-text-muted">Not run yet in this session.</p>
@@ -388,15 +399,14 @@ export default function NodeDetailBody({ nodeId, onClose }: { nodeId: string; on
             </TabsContent>
           )}
 
-          {/* Preview tab — standardized by output type (spec §32, Phase F).
-              The PreviewViewer dispatches by `previewKind` (resolved above from
-              the node's output / upstream-input type). Honest empty states;
-              real content renders once the artifacts bridge lands. */}
+          {/* Preview tab — standardized by output type and backed by the latest
+              node-result payload (or the upstream result for viewer nodes). */}
           {tabs.some((t) => t.id === 'preview') && (
             <TabsContent value="preview">
               <PreviewViewer
                 kind={previewKind}
                 status={status ? { status: status.status, message: status.message } : undefined}
+                result={visibleResult}
               />
             </TabsContent>
           )}

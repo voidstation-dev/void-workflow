@@ -1,5 +1,8 @@
 # Phase 4 — Artifact System
 
+> Historical MVP1/prototype status. Typed artifact references now exist, while
+> full node behavior remains tracked in `NODE_RUNTIME_IMPLEMENTATION_STATUS.md`.
+
 Status: DONE
 
 Progress: 100%

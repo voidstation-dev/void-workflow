@@ -1,10 +1,9 @@
 use crate::error::{AppError, Result};
 use crate::workflow::artifact::ArtifactManager;
 use crate::workflow::executor::NodeExecutor;
-use crate::workflow::model::Node;
+use crate::workflow::model::{Node, NodeExecutionResult, NodeInputs};
 use async_trait::async_trait;
 use serde_json::Value;
-use std::collections::HashMap;
 use std::fs;
 use tokio_util::sync::CancellationToken;
 
@@ -15,10 +14,10 @@ impl NodeExecutor for SaveJsonNode {
     async fn execute(
         &self,
         node: &Node,
-        inputs: &HashMap<String, Value>,
+        inputs: &NodeInputs,
         _cancel_token: CancellationToken,
         artifact_manager: &ArtifactManager,
-    ) -> Result<Value> {
+    ) -> Result<NodeExecutionResult> {
         let filename = node
             .data
             .extra
@@ -33,8 +32,11 @@ impl NodeExecutor for SaveJsonNode {
         fs::write(&output_path, content)
             .map_err(|e| AppError::Internal(format!("Failed to write JSON file: {}", e)))?;
 
-        Ok(serde_json::json!({
-            "artifact_path": output_path.to_string_lossy(),
-        }))
+        let artifact =
+            artifact_manager.describe(&output_path, "json", &node.id, Some("application/json"))?;
+        Ok(NodeExecutionResult {
+            artifacts: vec![artifact],
+            ..NodeExecutionResult::default()
+        })
     }
 }
