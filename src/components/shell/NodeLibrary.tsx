@@ -161,32 +161,32 @@ export function NodeLibrary() {
   return (
     <aside
       aria-label="Node library"
-      className="relative flex h-full min-h-0 flex-col bg-surface-sidebar border-l border-border-subtle"
+      className="workflow-side-panel absolute bottom-4 right-4 top-4 z-[var(--z-panel)] flex min-h-0 flex-col overflow-hidden border border-border-subtle bg-surface-sidebar"
       style={{ width }}
     >
-      <div className="flex h-auto shrink-0 flex-col gap-0.5 px-3 pt-3 pb-2">
+      <div className="flex h-auto shrink-0 flex-col gap-1 border-b border-border-subtle px-4 pb-3 pt-4">
         <div className="flex items-center justify-between">
-          <h2 className="text-[13px] font-semibold text-text-primary">Build</h2>
+          <h2 className="text-[18px] font-semibold tracking-[-0.02em] text-text-primary">Build</h2>
           <button
             type="button"
             aria-label="Collapse build panel"
             title="Collapse (Ctrl/Cmd+B)"
             onClick={toggle}
-            className="rounded-control p-1 text-text-muted hover:bg-surface-hover hover:text-text-primary"
+            className="rounded-full p-1.5 text-text-muted hover:bg-surface-hover hover:text-text-primary"
           >
             <ChevronRight size={14} aria-hidden="true" />
           </button>
         </div>
-        <p className="text-[11px] text-text-muted">Drag block into workflow</p>
+        <p className="text-[12px] text-text-secondary">Drag a block into the workflow</p>
       </div>
 
-      <div id={LIBRARY_ID} className="min-h-0 flex-1 overflow-y-auto pb-2">
+      <div id={LIBRARY_ID} className="min-h-0 flex-1 overflow-y-auto px-2 pb-3 pt-3">
         {/* Search input — sourced from buildQuery (shared with header search) */}
-        <div className="relative shrink-0 px-2 pb-2">
+        <div className="relative shrink-0 px-1 pb-3">
           <Search
             size={14}
             aria-hidden="true"
-            className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-text-muted"
+            className="pointer-events-none absolute left-3 top-[18px] -translate-y-1/2 text-text-muted"
           />
           <input
             type="text"
@@ -204,7 +204,7 @@ export function NodeLibrary() {
             }}
             placeholder="Search nodes…"
             aria-label="Search nodes"
-            className="h-8 w-full rounded-control border border-border-subtle bg-surface-panel pl-8 pr-8 text-[12px] text-text-primary placeholder:text-text-muted focus:border-border-focus focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-border-focus focus-visible:ring-offset-1"
+            className="h-9 w-full rounded-[10px] border border-border-subtle bg-surface-panel pl-8 pr-8 text-[12px] text-text-primary placeholder:text-text-muted focus:border-border-focus focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-border-focus focus-visible:ring-offset-1"
           />
           {query && (
             <button
@@ -238,7 +238,7 @@ export function NodeLibrary() {
                   aria-expanded={!effectivelyCollapsed}
                   aria-controls={`cat-${cat}`}
                   onClick={() => setCollapseMap((prev) => ({ ...prev, [cat]: !prev[cat] }))}
-                  className="flex w-full items-center gap-1 px-3 py-1 text-left text-[10px] font-semibold uppercase tracking-wide text-text-muted hover:bg-surface-hover"
+                  className="flex w-full items-center gap-1 px-2 py-2 text-left text-[11px] font-semibold tracking-[-0.01em] text-text-primary hover:bg-surface-hover"
                 >
                   {effectivelyCollapsed ? (
                     <ChevronRight size={12} aria-hidden="true" />
@@ -252,7 +252,7 @@ export function NodeLibrary() {
                   id={`cat-${cat}`}
                   role="list"
                   inert={effectivelyCollapsed || undefined}
-                  className={cn('flex flex-col gap-1 px-2 py-1', effectivelyCollapsed && 'hidden')}
+                  className={cn('flex flex-col gap-2 px-1 pb-3', effectivelyCollapsed && 'hidden')}
                 >
                   {grouped[cat].map((def) => (
                     <NodeLibraryItem

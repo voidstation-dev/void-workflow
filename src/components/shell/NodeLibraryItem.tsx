@@ -66,15 +66,16 @@ export function NodeLibraryItem({ def, onKeyDown }: NodeLibraryItemProps) {
         onDragEnd={handleDragEnd}
         onKeyDown={onKeyDown}
         className={cn(
-          'group flex min-h-[44px] cursor-grab items-center gap-2 rounded-control border border-border-subtle bg-surface-panel px-3 py-2',
-          'transition-shadow hover:border-border-default hover:shadow-node',
+          'group flex min-h-[44px] cursor-grab items-center gap-2.5 rounded-[10px] border border-border-default bg-surface-panel px-3 py-2',
+          'transition-[border-color,box-shadow,transform] hover:-translate-y-px hover:border-text-muted hover:shadow-node',
           'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-border-focus focus-visible:ring-offset-1',
         )}
       >
-        <Icon size={18} className="shrink-0 text-text-secondary" aria-hidden="true" />
+        <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-accent-subtle text-text-accent">
+          <Icon size={15} strokeWidth={1.8} aria-hidden="true" />
+        </span>
         <div className="min-w-0 flex-1">
           <div className="truncate text-[12px] font-medium text-text-primary">{def.label}</div>
-          <div className="truncate text-[11px] text-text-muted">{def.description}</div>
         </div>
 
         {badge === 'note' && (

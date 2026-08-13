@@ -11,7 +11,7 @@ export function CanvasContainer() {
     <main
       aria-label="Workflow canvas"
       role="application"
-      className="relative flex min-w-[480px] flex-1 flex-col bg-surface-canvas"
+      className="relative flex h-full min-w-0 flex-1 flex-col bg-surface-canvas"
       tabIndex={-1}
     >
       <h2 className="sr-only">Workflow canvas</h2>

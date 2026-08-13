@@ -130,7 +130,7 @@ export function Inspector() {
   return (
     <aside
       aria-label="Inspector"
-      className="relative flex h-full min-h-0 flex-col bg-surface-sidebar border-l border-border-subtle"
+      className="workflow-side-panel absolute bottom-4 right-4 top-4 z-[var(--z-panel)] flex min-h-0 flex-col overflow-hidden border border-border-subtle bg-surface-sidebar"
       style={{ width }}
     >
       {/* Left-edge resize splitter */}
@@ -155,7 +155,7 @@ export function Inspector() {
           followed by the mode title (Node / Connection / Multi-select), then the
           collapse chevron. The Back button is the primary affordance for the
           Build↔Inspector swap; Esc still clears selection globally. */}
-      <div className="flex h-8 shrink-0 items-center gap-1 px-2">
+      <div className="flex h-12 shrink-0 items-center gap-1 border-b border-border-subtle px-3">
         <button
           type="button"
           aria-label="Back to Build"

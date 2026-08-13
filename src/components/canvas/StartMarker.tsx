@@ -18,10 +18,11 @@ export function StartMarker() {
   return (
     <div
       aria-hidden="true"
-      className="pointer-events-none flex items-center gap-1 rounded-control bg-accent px-2 py-1 text-[11px] font-medium text-text-on-accent shadow-node"
+      className="pointer-events-none relative flex items-center gap-1.5 rounded-full border border-[var(--start-marker-border)] bg-[var(--start-marker)] px-3 py-1.5 text-[11px] font-medium text-[var(--start-marker-text)] shadow-[0_1px_2px_rgba(24,32,48,0.04)]"
     >
-      <Play size={11} fill="currentColor" aria-hidden="true" />
-      Start
+      <Play size={11} aria-hidden="true" />
+      Start here
+      <span className="absolute left-1/2 top-full h-6 border-l border-dashed border-border-default" aria-hidden="true" />
     </div>
   );
 }

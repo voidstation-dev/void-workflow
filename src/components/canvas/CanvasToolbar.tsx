@@ -51,7 +51,7 @@ export function CanvasToolbar() {
     <div
       role="toolbar"
       aria-label="Canvas controls"
-      className="pointer-events-auto flex items-center gap-0.5 rounded-panel border border-border-subtle bg-surface-panel p-1 shadow-node"
+      className="pointer-events-auto flex items-center gap-0.5 rounded-[11px] border border-border-default bg-surface-panel p-1 shadow-popover"
     >
       {/* Outline/Detail density toggle (spec §15). Two-state segmented control:
           Outline (compact: header + ports only) vs Detail (full card). The
@@ -64,9 +64,10 @@ export function CanvasToolbar() {
           aria-label="Outline cards"
           title="Outline (compact cards)"
           onClick={() => setNodeCardMode('outline')}
-          className={cn(btnBase, !isDetail ? 'bg-surface-hover text-text-primary' : '')}
+          className={cn('inline-flex h-7 items-center gap-1.5 rounded-[7px] px-2.5 text-[11px] font-medium', !isDetail ? 'bg-text-primary text-white' : 'text-text-secondary hover:bg-surface-hover')}
         >
           <Rows3 size={14} aria-hidden="true" />
+          Outline
         </button>
         <button
           type="button"
@@ -74,9 +75,10 @@ export function CanvasToolbar() {
           aria-label="Detail cards"
           title="Detail (full cards)"
           onClick={() => setNodeCardMode('detail')}
-          className={cn(btnBase, isDetail ? 'bg-surface-hover text-text-primary' : '')}
+          className={cn('inline-flex h-7 items-center gap-1.5 rounded-[7px] px-2.5 text-[11px] font-medium', isDetail ? 'bg-text-primary text-white' : 'text-text-secondary hover:bg-surface-hover')}
         >
           <LayoutGrid size={14} aria-hidden="true" />
+          Detail
         </button>
       </div>
 
@@ -141,7 +143,7 @@ export function CanvasToolbar() {
         type="button"
         aria-label="Fit view"
         title="Fit view (0)"
-        onClick={() => fitView({ duration: 0 })}
+        onClick={() => fitView({ duration: 0, maxZoom: 1, padding: 0.18 })}
         className={btnBase}
       >
         <Maximize size={14} aria-hidden="true" />

@@ -100,10 +100,10 @@ function BaseNodeComponent({ id, type, data, selected }: NodeProps<AppNode>) {
       aria-label={accessibleName}
       role="group"
       className={cn(
-        'relative min-w-[240px] max-w-[300px] rounded-node border bg-surface-panel shadow-node transition-shadow',
+        'workflow-node relative min-w-[320px] max-w-[380px] overflow-visible rounded-[14px] border bg-surface-panel shadow-node transition-[box-shadow,border-color]',
         selected
-          ? 'border-border-focus bg-surface-elevated shadow-node-selected ring-2 ring-border-focus ring-offset-1 ring-offset-surface-canvas'
-          : 'border-border-subtle',
+          ? 'border-border-focus bg-surface-elevated shadow-node-selected ring-1 ring-border-focus ring-offset-1 ring-offset-surface-canvas'
+          : 'border-border-default',
       )}
     >
       {showToolbar && (
@@ -113,9 +113,11 @@ function BaseNodeComponent({ id, type, data, selected }: NodeProps<AppNode>) {
       )}
       {/* NodeHeader — icon + title (always present). No ⋯ menu yet (Phase 6
           Inspector owns per-node actions). */}
-      <div className="flex items-center gap-1.5 px-3 py-2">
-        <Icon size={14} className="shrink-0 text-text-secondary" aria-hidden="true" />
-        <span className="min-w-0 flex-1 truncate text-[13px] font-semibold text-text-primary">
+      <div className="flex items-center gap-3 px-4 pb-2 pt-3.5">
+        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-accent-subtle text-text-accent">
+          <Icon size={16} strokeWidth={1.8} aria-hidden="true" />
+        </span>
+        <span className="min-w-0 flex-1 truncate text-[14px] font-semibold tracking-[-0.015em] text-text-primary">
           {label}
         </span>
       </div>
@@ -123,16 +125,16 @@ function BaseNodeComponent({ id, type, data, selected }: NodeProps<AppNode>) {
       {/* Body — description + NodeMeta chips. Detail mode only; outline mode
           collapses the card to header + ports (low visual noise, spec §7). */}
       {nodeCardMode === 'detail' && (description || chips?.length) && (
-        <div className="flex flex-col gap-1 px-3 pb-2">
+        <div className="flex flex-col gap-1.5 px-4 pb-3">
           {description && (
-            <p className="text-[11px] leading-snug text-text-secondary">{description}</p>
+            <p className="text-[11px] leading-relaxed text-text-secondary">{description}</p>
           )}
           {chips && chips.length > 0 && (
             <div className="flex flex-wrap items-center gap-1" aria-hidden="true">
               {chips.map((chip, i) => (
                 <span
                   key={`${chip}-${i}`}
-                  className="rounded-chip border border-border-subtle bg-surface-sidebar px-1.5 py-0.5 text-[10px] text-text-muted"
+                  className="rounded-full border border-border-subtle bg-surface-hover px-2 py-0.5 text-[10px] text-text-secondary"
                 >
                   {chip}
                 </span>
@@ -145,7 +147,7 @@ function BaseNodeComponent({ id, type, data, selected }: NodeProps<AppNode>) {
       {/* Typed ports row: input LEFT, output RIGHT. Each PortHandle is gated on
           its side having ≥1 port (markdownNote renders none). */}
       {hasPorts ? (
-        <div className="relative flex items-center justify-between px-3 py-1.5">
+        <div className="relative flex items-center justify-between border-t border-border-subtle px-4 py-2.5">
           <div className="flex flex-col gap-1">
             {def?.ports.in.map((port) => (
               <PortHandle

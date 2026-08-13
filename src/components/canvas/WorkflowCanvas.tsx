@@ -332,13 +332,13 @@ function CanvasInner() {
     const aiId = uuidv4();
     const previewId = uuidv4();
     const baseX = 80;
-    const gap = 220;
+    const gap = 380;
     addNode({ id: textId, type: 'textInput', position: { x: baseX, y: 160 }, data: { label: 'Text Input' } });
     addNode({ id: aiId, type: 'aiScript', position: { x: baseX + gap, y: 160 }, data: { label: 'AI Script (Gemini)' } });
     addNode({ id: previewId, type: 'preview', position: { x: baseX + gap * 2, y: 160 }, data: { label: 'Preview' } });
     onConnect({ source: textId, target: aiId, sourceHandle: 'out', targetHandle: 'in' });
     onConnect({ source: aiId, target: previewId, sourceHandle: 'out', targetHandle: 'in' });
-    setTimeout(() => fitView({ duration: 0 }), 0);
+    setTimeout(() => fitView({ duration: 0, maxZoom: 1, padding: 0.18 }), 0);
   }, [addNode, onConnect, fitView]);
 
   // "Local Media → Info": registry has no media-source node (fileInput outputs
@@ -352,7 +352,7 @@ function CanvasInner() {
     addNode({ id: mediaId, type: 'mediaInfo', position: { x: 120, y: 160 }, data: { label: 'Media Info' } });
     addNode({ id: previewId, type: 'preview', position: { x: 340, y: 160 }, data: { label: 'Preview' } });
     onConnect({ source: mediaId, target: previewId, sourceHandle: 'out', targetHandle: 'in' });
-    setTimeout(() => fitView({ duration: 0 }), 0);
+    setTimeout(() => fitView({ duration: 0, maxZoom: 1, padding: 0.18 }), 0);
   }, [addNode, onConnect, fitView]);
 
   return (
@@ -375,6 +375,7 @@ function CanvasInner() {
         nodeTypes={nodeTypes}
         edgeTypes={edgeTypes}
         fitView
+        fitViewOptions={{ maxZoom: 1, padding: 0.18 }}
         colorMode="light"
         // Multi-select (spec §16 "Phase 5+"): cheap additive RF built-ins.
         // selectionOnDrag=false keeps pan/drag semantics unchanged — rubberband
@@ -383,20 +384,20 @@ function CanvasInner() {
         selectionKeyCode="Shift"
         multiSelectionKeyCode="Shift"
       >
-        <Background color="var(--surface-canvas-grid)" gap={24} />
+        <Background color="var(--surface-canvas-grid)" gap={28} size={1} />
         {/* Phase 6: StartMarker — a React Flow Panel overlay (NOT a node),
-            pinned top-left as a visual workflow-start affordance. aria-hidden
+            pinned top-center as a visual workflow-start affordance. aria-hidden
             (no actionable semantics; Run lives in the header). Never enters
             nodeTypes, save JSON, or isValidConnection (spec §7.2 / §10). */}
         {nodes.length > 0 && (
-          <Panel position="top-left" className="pointer-events-none m-2">
+          <Panel position="top-center" className="pointer-events-none mt-5">
             <StartMarker />
           </Panel>
         )}
-        {/* Phase 6: CanvasToolbar — bottom-center compact bar (spec §9):
+        {/* Phase 6: CanvasToolbar — bottom-left compact bar (spec §9):
             Outline/Detail density toggle, Undo/Redo, Fit, zoom −/%/+, Minimap.
             Replaces the vertical Controls + the bottom-right Fit+zoom Panel. */}
-        <Panel position="bottom-center" className="mb-2">
+        <Panel position="bottom-left" className="mb-3 ml-3">
           <CanvasToolbar />
         </Panel>
         {/* Multi-select group toolbar (spec §55/§65): Duplicate · Delete · Align.

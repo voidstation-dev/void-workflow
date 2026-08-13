@@ -1,5 +1,5 @@
 import { useEffect, useRef, useCallback } from 'react';
-import { invoke } from '@tauri-apps/api/core';
+import { invoke, isTauri } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { v4 as uuidv4 } from 'uuid';
@@ -72,6 +72,12 @@ export function useWorkflowController(): WorkflowController {
   };
 
   const init = useCallback<WorkflowController['init']>(async () => {
+    // Keep the Vite web preview usable for visual QA. Native persistence and
+    // execution remain Tauri-only; the browser simply keeps the in-memory graph.
+    if (!isTauri()) {
+      store.getState().setHealth({ backend: 'unknown' });
+      return;
+    }
     try {
       await invoke<string>('init_project');
       store.getState().setHealth({ backend: 'ready' });
@@ -192,6 +198,8 @@ export function useWorkflowController(): WorkflowController {
 
   // --- Event subscriptions + window-close guard (mount once) ---
   useEffect(() => {
+    if (!isTauri()) return;
+
     let unlistenLog: (() => void) | undefined;
     let unlistenStatus: (() => void) | undefined;
     let unlistenClose: (() => void) | undefined;
@@ -318,10 +326,12 @@ export function useWorkflowController(): WorkflowController {
   // Escape hatch the UnsavedGuardDialog uses to approve + re-trigger close
   // after the user picks Save/Discard. Kept on window so the dialog (which has
   // no controller ref) can call it without prop-drilling.
-  (window as any).__voidApproveClose = () => {
-    closeApprovedRef.current = true;
-    getCurrentWindow().close();
-  };
+  if (isTauri()) {
+    (window as any).__voidApproveClose = () => {
+      closeApprovedRef.current = true;
+      getCurrentWindow().close();
+    };
+  }
 
   return { init, save, run, stop, openFolder, pushToast, dismissToast, announce };
 }

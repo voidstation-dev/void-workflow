@@ -1,14 +1,14 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   Save as SaveIcon,
   Play,
   Square,
   LoaderCircle,
-  ChevronRight,
   TriangleAlert,
   Check,
   FolderOpen,
   RotateCcw,
+  Search,
 } from 'lucide-react';
 import { useWorkflowStore } from '@/store/workflowStore';
 import { cn } from '@/lib/utils';
@@ -42,12 +42,6 @@ export function WorkflowHeader({ controller }: Props) {
   const nodesCount = useWorkflowStore((s) => s.nodes.length);
   const lastCompletedRunId = useWorkflowStore((s) => s.lastCompletedRunId);
 
-  const breadcrumbRef = useRef<HTMLAnchorElement | null>(null);
-  // Initial focus → workflow title crumb (not Run — footgun avoidance, spec §5.5).
-  useEffect(() => {
-    breadcrumbRef.current?.focus();
-  }, []);
-
   const isRunning = runStatus === 'running' || runStatus === 'starting';
   const canRun = nodesCount > 0 && !isRunning;
   // Failed → show "Retry Failed" (a full re-run; start_run always starts fresh —
@@ -58,19 +52,18 @@ export function WorkflowHeader({ controller }: Props) {
   return (
     <header
       role="banner"
-      className="flex h-12 items-center gap-3 bg-surface-sidebar border-b border-border-subtle px-3"
+      className="flex h-[60px] items-center gap-3 border-b border-border-subtle bg-surface-sidebar px-5"
     >
       {/* LEFT — breadcrumb + save chip + run line */}
-      <nav aria-label="Breadcrumb" className="flex min-w-0 items-center gap-1 text-[13px]">
-        <span className="max-w-[140px] truncate text-text-muted" title={projectName}>{projectName}</span>
-        <ChevronRight size={14} className="shrink-0 text-text-muted" aria-hidden="true" />
+      <nav aria-label="Breadcrumb" className="flex min-w-0 items-center gap-2 text-[14px]">
+        <span className="max-w-[140px] truncate font-medium text-text-secondary" title={projectName}>{projectName}</span>
+        <span className="text-text-muted" aria-hidden="true">/</span>
         <a
-          ref={breadcrumbRef}
           href="#"
           onClick={(e) => e.preventDefault()}
           aria-current="page"
           data-focus-target="workflow-title"
-          className="max-w-[280px] truncate font-semibold text-text-primary outline-none"
+          className="max-w-[280px] truncate text-[15px] font-semibold tracking-[-0.02em] text-text-primary outline-none"
           title={workflowName}
           tabIndex={-1}
         >
@@ -97,7 +90,7 @@ export function WorkflowHeader({ controller }: Props) {
           aria-label="Save workflow"
           title={isRunning ? 'Save disabled while running' : 'Save (Ctrl/Cmd+S)'}
           className={cn(
-            'flex h-7 items-center gap-1.5 rounded-control px-2.5 text-[12px] font-medium',
+            'flex h-8 items-center gap-1.5 rounded-[9px] px-3 text-[12px] font-medium',
             'border border-transparent',
             dirty ? 'bg-accent text-text-on-accent hover:bg-accent-hover' : 'bg-surface-panel text-text-secondary hover:bg-surface-hover',
             'disabled:cursor-not-allowed disabled:opacity-50',
@@ -117,7 +110,7 @@ export function WorkflowHeader({ controller }: Props) {
             onClick={() => void controller.run()}
             aria-label="Retry failed workflow"
             title="Retry failed workflow (full re-run)"
-            className="flex h-7 items-center gap-1.5 rounded-control bg-status-error-strong px-2.5 text-[12px] font-medium text-text-on-status hover:bg-status-error-hover"
+            className="flex h-8 items-center gap-1.5 rounded-[9px] bg-status-error-strong px-3 text-[12px] font-medium text-text-on-status hover:bg-status-error-hover"
           >
             <RotateCcw size={14} aria-hidden="true" />
             Retry Failed
@@ -128,7 +121,7 @@ export function WorkflowHeader({ controller }: Props) {
             onClick={() => void controller.openFolder()}
             aria-label="Open output folder"
             title="Open output folder"
-            className="flex h-7 items-center gap-1.5 rounded-control bg-accent px-2.5 text-[12px] font-medium text-text-on-accent hover:bg-accent-hover"
+            className="flex h-8 items-center gap-1.5 rounded-[9px] bg-accent px-3 text-[12px] font-medium text-text-on-accent hover:bg-accent-hover"
           >
             <FolderOpen size={14} aria-hidden="true" />
             Open Output
@@ -141,7 +134,7 @@ export function WorkflowHeader({ controller }: Props) {
             aria-label={isRunning ? 'Stop workflow' : 'Run workflow'}
             title={isRunning ? 'Stop (deliberate click — Esc does not cancel a run)' : 'Run (Ctrl/Cmd+Enter)'}
             className={cn(
-              'flex h-7 items-center gap-1.5 rounded-control px-2.5 text-[12px] font-medium',
+              'flex h-8 items-center gap-1.5 rounded-[9px] px-3 text-[12px] font-medium',
               isRunning
                 ? 'bg-status-error-strong text-text-on-status hover:bg-status-error-hover'
                 : 'bg-accent text-text-on-accent hover:bg-accent-hover',
@@ -177,7 +170,12 @@ function HeaderSearch() {
   useEffect(() => { setValue(buildQuery); }, [buildQuery]);
 
   return (
-    <div className="relative ml-2 hidden min-w-0 flex-1 max-w-[360px] md:block">
+    <div className="relative ml-4 hidden min-w-[280px] max-w-[380px] flex-1 md:block">
+      <Search
+        size={15}
+        aria-hidden="true"
+        className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-text-muted"
+      />
       <input
         type="search"
         value={value}
@@ -190,10 +188,11 @@ function HeaderSearch() {
             setBuildQuery('');
           }
         }}
-        placeholder="Search nodes, runs, settings…"
+        placeholder="Search…"
         aria-label="Search"
-        className="h-7 w-full rounded-control border border-border-subtle bg-surface-panel pl-3 pr-3 text-[12px] text-text-primary placeholder:text-text-muted focus:border-border-focus"
+        className="h-9 w-full rounded-[10px] border border-border-default bg-surface-panel pl-9 pr-12 text-[12px] text-text-primary shadow-[0_1px_2px_rgba(26,28,34,0.03)] placeholder:text-text-muted focus:border-border-focus"
       />
+      <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-[10px] text-text-muted">⌘K</span>
     </div>
   );
 }

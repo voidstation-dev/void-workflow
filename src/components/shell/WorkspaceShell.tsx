@@ -1,4 +1,5 @@
 import { lazy, Suspense, useEffect, useState } from 'react';
+import { PanelRightOpen } from 'lucide-react';
 import { useWorkflowStore } from '@/store/workflowStore';
 import { WorkflowHeader } from './WorkflowHeader';
 import { WorkflowTabs } from './WorkflowTabs';
@@ -45,22 +46,25 @@ export function WorkspaceShell({ controller }: { controller: WorkflowController 
   // flag drive BOTH the Build panel (selectionMode==='none') and the Inspector
   // (node/edge/multi). The swap is presentation-only, so layout state is shared
   // — no width jump on swap. LAYOUT ONLY (persisted).
-  const rightPanelWidth = useWorkflowStore((s) => s.rightPanelWidth);
   const rightPanelCollapsed = useWorkflowStore((s) => s.rightPanelCollapsed);
+  const toggleRightPanel = useWorkflowStore((s) => s.toggleRightPanel);
   const activeScreen = useWorkflowStore((s) => s.activeScreen);
   // The right column renders the Build panel by default and swaps to the
   // Inspector when a node/edge/multi selection is active (Phase 5 completes the
   // Build↔Inspector single-column swap, spec §15).
   const selectionMode = useWorkflowStore((s) => s.selectionMode);
 
-  const [autoCollapsed, setAutoCollapsed] = useState(false);
+  const [isNarrow, setIsNarrow] = useState(false);
+  const [narrowPanelOpen, setNarrowPanelOpen] = useState(false);
 
   useEffect(() => {
     const onResize = () => {
       // Min widths: canvas 480 + right column 280 = 760. The right column
       // collapses below 760 so the canvas never starves. The dock renders its
       // own collapsed summary bar when too short, so no dock auto-flag.
-      setAutoCollapsed(window.innerWidth < 760);
+      const narrow = window.innerWidth < 760;
+      setIsNarrow(narrow);
+      if (!narrow) setNarrowPanelOpen(false);
     };
     onResize();
     window.addEventListener('resize', onResize);
@@ -70,9 +74,13 @@ export function WorkspaceShell({ controller }: { controller: WorkflowController 
   const isWorkflow = activeScreen === 'workflow';
   // The single right column: Build by default, Inspector on selection. One
   // shared width + collapsed flag (Phase 5 unification).
-  const rightCollapsed = rightPanelCollapsed || autoCollapsed;
-  const rightCol = isWorkflow && !rightCollapsed ? `${rightPanelWidth}px` : '0px';
+  const rightCollapsed = rightPanelCollapsed || (isNarrow && !narrowPanelOpen);
+  const panelLabel = selectionMode === 'none' ? 'Build' : 'Inspector';
 
+  const openRightPanel = () => {
+    if (rightPanelCollapsed) toggleRightPanel();
+    if (isNarrow) setNarrowPanelOpen(true);
+  };
   const renderScreen = (screen: ActiveScreen) => {
     switch (screen) {
       case 'runs':
@@ -87,22 +95,14 @@ export function WorkspaceShell({ controller }: { controller: WorkflowController 
   };
 
   return (
-    <div
-      className="grid h-screen w-screen overflow-hidden bg-surface-canvas text-text-primary"
-      style={{
-        gridTemplateRows: '48px 40px 1fr auto',
-        // Workflow path: [Canvas 1fr][Right w]. The right column is a SINGLE
-        // column hosting the Build panel (default) or the Inspector (when a
-        // node/edge/multi selection is active) — the Phase 3 beginning of the
-        // Build↔Inspector single-column swap (spec §15). Non-workflow: the right
-        // col collapses to 0, the screen spans cols 1/-1. ReactFlowProvider
-        // unmounts on screen switch → @xyflow internal viewport lost; graphSlice
-        // in Zustand survives so re-entering Workflow re-renders without a
-        // reload. The controller's event listeners stay attached → a live run
-        // keeps updating the store while unmounted.
-        gridTemplateColumns: `minmax(480px, 1fr) ${rightCol}`,
-      }}
-    >
+    <div className="void-workspace-backdrop">
+      <div
+        className="void-workspace-shell grid overflow-hidden text-text-primary"
+        style={{
+          gridTemplateRows: '60px 48px minmax(0, 1fr) auto',
+          gridTemplateColumns: 'minmax(0, 1fr)',
+        }}
+      >
       {/* Row 1 — header spans all columns */}
       <div style={{ gridColumn: '1 / -1' }}>
         <WorkflowHeader controller={controller} />
@@ -114,11 +114,22 @@ export function WorkspaceShell({ controller }: { controller: WorkflowController 
       </div>
 
       {isWorkflow ? (
-        <>
-          {/* Row 3 — canvas on the left, single right column (Build↔Inspector). */}
+        <div className="relative min-h-0 min-w-0 overflow-hidden" style={{ gridColumn: '1 / -1' }}>
           <CanvasContainer />
-          {selectionMode === 'none' ? <NodeLibrary /> : <Inspector />}
-        </>
+          {!rightCollapsed && (selectionMode === 'none' ? <NodeLibrary /> : <Inspector />)}
+          {rightCollapsed && (
+            <button
+              type="button"
+              aria-label={`Show ${panelLabel} panel`}
+              title={`Show ${panelLabel} panel (${selectionMode === 'none' ? 'Ctrl/Cmd+B' : 'Ctrl/Cmd+I'})`}
+              onClick={openRightPanel}
+              className="absolute right-4 top-4 z-[var(--z-toolbar)] flex h-9 items-center gap-2 rounded-[11px] border border-border-default bg-surface-panel px-3 text-[12px] font-medium text-text-secondary shadow-popover transition-[transform,box-shadow,color] hover:-translate-y-px hover:text-text-primary hover:shadow-node-selected"
+            >
+              <PanelRightOpen size={15} strokeWidth={1.8} aria-hidden="true" />
+              <span className="hidden sm:inline">{panelLabel}</span>
+            </button>
+          )}
+        </div>
       ) : (
         <>
           {/* Row 3 — the active screen spans the full body (right col 0).
@@ -139,6 +150,7 @@ export function WorkspaceShell({ controller }: { controller: WorkflowController 
       <StatusAnnouncer />
       <KeyboardHelpDialog />
       <UnsavedGuardDialog />
+      </div>
     </div>
   );
 }

@@ -884,7 +884,7 @@ export const useWorkflowStore = create<WorkflowState>()(
       // flag for the Build/Inspector swap. Clamp 280-360 (Build is the default
       // panel; the Inspector's wider 300px needs are met within this range, and a
       // single range keeps the swap stable). Persisted (LAYOUT ONLY).
-      rightPanelWidth: 300,
+      rightPanelWidth: 320,
       rightPanelCollapsed: false,
       setRightPanelWidth: (width) => set({ rightPanelWidth: clamp(width, 280, 360) }),
       toggleRightPanel: () => set({ rightPanelCollapsed: !get().rightPanelCollapsed }),

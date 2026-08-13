@@ -13,28 +13,29 @@
   color-scheme: light;
 
   /* --- Surface (spec §24: canvas #F7F7F5, panel/header #FFFFFF) --------- */
-  --surface-canvas:       #F7F7F5;  /* canvas bg, light neutral              */
-  --surface-canvas-grid:  #E2E4E8;  /* React Flow Background dots (low-op)   */
+  --surface-backdrop:     #E1E5EA;  /* desktop surround, cool neutral         */
+  --surface-canvas:       #FBFBFA;  /* canvas bg, paper-like neutral          */
+  --surface-canvas-grid:  #E9EBEF;  /* React Flow Background dots (low-op)   */
   --surface-sidebar:      #FFFFFF;  /* header/library/inspector/toolbar      */
   --surface-panel:        #FFFFFF;  /* dock/sections/inputs/node cards       */
   --surface-elevated:     #FFFFFF;  /* popover/menu/selected/toast (shadow lifts) */
-  --surface-hover:        #F2F3F5;  /* hover/active row fill                 */
+  --surface-hover:        #F4F4F6;  /* hover/active row fill                 */
   --surface-input:        #FFFFFF;  /* form control bg (border defines it)   */
   --surface-overlay:      rgba(23, 24, 28, 0.45); /* modal scrim             */
 
   /* --- Border (spec §24: border #E6E7E9) ------------------------------- */
-  --border-subtle:        #E6E7E9;  /* zone separators (1px)                 */
-  --border-default:       #C9CBD0;  /* popover/menu/input borders            */
-  --border-focus:         #5267E9;  /* THE accent / focus / selection ring   */
+  --border-subtle:        #E8E8EB;  /* zone separators (1px)                 */
+  --border-default:       #D8D9DE;  /* popover/menu/input borders            */
+  --border-focus:         #7669DE;  /* THE accent / focus / selection ring   */
   --border-status:        #C9CBD0;  /* status badge outlines, progress track */
 
   /* --- Text (spec §24) ------------------------------------------------- */
-  --text-primary:         #17181A;  /* ~16:1  vs panel — AAA                */
-  --text-secondary:       #64676D;  /* ~5.3:1 vs panel — AA                 */
-  --text-muted:           #92969E;  /* ~3.2:1 vs panel — AA-large/decorative */
+  --text-primary:         #191A1D;  /* ~16:1  vs panel — AAA                */
+  --text-secondary:       #5E6168;  /* ~5.3:1 vs panel — AA                 */
+  --text-muted:           #92959C;  /* ~3.2:1 vs panel — AA-large/decorative */
   --text-disabled:        #C0C4CC;  /* decorative small text (§12)           */
   --text-error:           #C5303C;  /* ~4.6:1 vs panel — AA                 */
-  --text-accent:          #3F52D4;  /* darker indigo for accent text on white (~6.6:1) */
+  --text-accent:          #5B50BF;  /* darker violet for accent text on white */
   --text-on-accent:       #FFFFFF;  /* on accent.fill (Run button label)     */
   --text-on-status:       #FFFFFF;  /* in filled status badges               */
 
@@ -51,9 +52,12 @@
   --status-skipped:       #A0A5AD;
 
   /* --- Accent (single hue — indigo, spec §24) -------------------------- */
-  --accent:               #5267E9;
-  --accent-hover:         #4554D6;
-  --accent-subtle:        rgba(82, 103, 233, 0.10);
+  --accent:               #7669DE;
+  --accent-hover:         #6558CB;
+  --accent-subtle:        #F0EEFF;
+  --start-marker:         #EAF0FB;
+  --start-marker-border:  #D9E2F5;
+  --start-marker-text:    #334155;
 
   /* --- Ports (color-SECONDARY; shape + icon primary; desaturated for white) -- */
   --port-text:            #64748B;
@@ -69,8 +73,8 @@
 
   /* --- Radius (spec §25: node 10–12, panel 12, button 7–9, chip 5–6) --- */
   --radius-control:       8px;      /* buttons, inputs, small controls       */
-  --radius-panel:         12px;     /* panels, popovers, menus               */
-  --radius-node:          10px;     /* node cards (distinct from 12px panels) */
+  --radius-panel:         16px;     /* panels, popovers, menus               */
+  --radius-node:          14px;     /* node cards                            */
   --radius-chip:          6px;      /* metadata chips, badges                */
   --radius-full:          9999px;   /* dots, circular port handles           */
 
@@ -88,10 +92,10 @@
   --border-width-edge:    1.5px; /* canvas edges (spec §7.3)                  */
 
   /* --- Shadow (spec §25: 0 2px 8px rgba(0,0,0,0.05); selected = stronger) -- */
-  --shadow-popover:       0 4px 16px rgba(0, 0, 0, 0.08);
-  --shadow-modal:         0 8px 32px rgba(0, 0, 0, 0.12);
-  --shadow-node:          0 2px 8px  rgba(0, 0, 0, 0.05);
-  --shadow-node-selected: 0 4px 16px rgba(0, 0, 0, 0.10);
+  --shadow-popover:       0 12px 36px rgba(31, 36, 49, 0.10);
+  --shadow-modal:         0 18px 60px rgba(31, 36, 49, 0.16);
+  --shadow-node:          0 4px 14px rgba(31, 36, 49, 0.07);
+  --shadow-node-selected: 0 10px 28px rgba(31, 36, 49, 0.13);
 
   /* --- Motion (≤120ms default; reduced-motion zeroes — see below) ------- */
   --motion-duration-fast: 80ms;
@@ -157,7 +161,7 @@
 
 /* --- Global focus-visible ring (every interactive element inherits) ----- */
 :where(button, a, input, select, textarea, [role="tab"], [role="menuitem"],
-       [role="button"], [tabindex], [role="separator"]):focus-visible {
+       [role="button"], [tabindex]:not([tabindex="-1"]), [role="separator"]):focus-visible {
   outline: var(--ring-width) solid var(--ring-color);
   outline-offset: var(--ring-offset);
   border-radius: inherit;
@@ -340,9 +344,81 @@
     line-height: 1.45;
   }
   body {
-    background: var(--surface-canvas);
+    min-width: 320px;
+    min-height: 100dvh;
+    overflow: hidden;
+    background: var(--surface-backdrop);
     color: var(--text-primary);
     margin: 0;
+  }
+}
+
+/* --- Studio shell ------------------------------------------------------ */
+.void-workspace-backdrop {
+  display: grid;
+  width: 100vw;
+  height: 100dvh;
+  min-height: 0;
+  place-items: center;
+  padding: clamp(16px, 2vw, 32px);
+  background:
+    radial-gradient(circle at 50% 16%, rgba(255, 255, 255, 0.55), transparent 38%),
+    var(--surface-backdrop);
+}
+
+.void-workspace-shell {
+  width: min(100%, 1480px);
+  height: 100%;
+  min-height: 0;
+  border: 1px solid rgba(255, 255, 255, 0.85);
+  border-radius: 18px;
+  background: var(--surface-panel);
+  box-shadow: 0 24px 70px rgba(42, 48, 61, 0.13);
+}
+
+.workflow-side-panel {
+  border-radius: var(--radius-panel);
+  box-shadow: var(--shadow-popover);
+}
+
+.workflow-side-panel::-webkit-scrollbar,
+.workflow-side-panel *::-webkit-scrollbar {
+  width: 8px;
+}
+
+.workflow-side-panel *::-webkit-scrollbar-thumb {
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background: #D8DAE0;
+  background-clip: padding-box;
+}
+
+.workflow-node {
+  isolation: isolate;
+}
+
+.react-flow__background {
+  opacity: 0.52;
+}
+
+.react-flow__attribution {
+  display: none;
+}
+
+@media (max-width: 900px), (max-height: 680px) {
+  .void-workspace-backdrop {
+    padding: 0;
+  }
+
+  .void-workspace-shell {
+    border: 0;
+    border-radius: 0;
+  }
+
+  .workflow-side-panel {
+    bottom: 10px;
+    right: 10px;
+    top: 10px;
   }
 }
 

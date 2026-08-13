@@ -56,7 +56,7 @@ export function WorkflowTabs() {
     <nav
       aria-label="Workspace sections"
       aria-orientation="horizontal"
-      className="flex h-10 items-center gap-1 bg-surface-sidebar border-b border-border-subtle px-3"
+      className="flex h-12 items-center gap-2 border-b border-border-subtle bg-surface-sidebar px-4"
     >
       {TABS.map((tab, index) => {
         const Icon = tab.icon;
@@ -73,20 +73,20 @@ export function WorkflowTabs() {
             onClick={() => setActiveScreen(tab.screen)}
             onKeyDown={(e) => onKeyDown(e, index)}
             className={cn(
-              'relative flex h-8 items-center gap-1.5 rounded-control px-2.5 text-[12px] font-medium',
+              'relative flex h-10 items-center gap-2 rounded-control px-2.5 text-[13px] font-medium',
               'transition-colors',
               isActive
-                ? 'bg-accent-subtle text-accent'
+                ? 'text-text-primary'
                 : 'text-text-secondary hover:bg-surface-hover hover:text-text-primary',
             )}
           >
-            <Icon size={14} aria-hidden="true" />
+            <Icon size={16} strokeWidth={1.8} aria-hidden="true" />
             {tab.label}
             {/* 2px accent underline — active state is NEVER color-only
                 (underline + tinted bg + accent text + aria-current). */}
             {isActive && (
               <span
-                className="absolute -bottom-[9px] left-2 right-2 h-0.5 rounded-full bg-accent"
+                className="absolute -bottom-[4px] left-2 right-2 h-0.5 rounded-full bg-text-primary"
                 aria-hidden="true"
               />
             )}
