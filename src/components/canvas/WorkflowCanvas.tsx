@@ -21,6 +21,7 @@ import { nodeTypes } from '@/nodes/nodeTypes';
 import { NODE_DEFINITIONS } from '@/nodes/registry';
 import { resolvePortType, isTypeCompatible } from '@/nodes/portCompat';
 import { useKeyboardConnect } from '@/hooks/useKeyboardConnect';
+import { youtubeVisualizerTemplate } from '@/nodes/youtubeTemplatePreset';
 import { CanvasToolbar } from './CanvasToolbar';
 import { StartMarker } from './StartMarker';
 import { ContextMenu, ContextMenuTrigger } from '@/components/primitives/ContextMenu';
@@ -51,7 +52,7 @@ const defaultEdgeOptions = {
 } as const;
 
 function CanvasInner() {
-  const { nodes, edges, onNodesChange, onEdgesChange, onConnect, addNode } = useWorkflowStore();
+  const { nodes, edges, onNodesChange, onEdgesChange, onConnect, addNode, replaceGraph } = useWorkflowStore();
   const { screenToFlowPosition, getNodes, getEdges, fitView, setCenter } = useReactFlow();
   // Pane context-menu: capture the flow-space click position so the menu's
   // "Add Node"/"Paste" can place exactly at the cursor. Radix ContextMenu
@@ -355,6 +356,33 @@ function CanvasInner() {
     setTimeout(() => fitView({ duration: 0, maxZoom: 1, padding: 0.18 }), 0);
   }, [addNode, onConnect, fitView]);
 
+  // YouTube Visualizer template (4 runtime nodes): Audio & Cover → Background
+  // Media → Soundwave Visualizer → Preview & Export, wired with the REAL
+  // registry handle ids (audio/metadata/cover/background/video) — unlike the
+  // two legacy templates above which still use the stale 'out'/'in' handles.
+  // Loaded via replaceGraph (single store mutation → one history snapshot +
+  // markDirty). Node ids are remapped to fresh uuids so a re-load never
+  // collides, and edges are rewritten to match. File paths are intentionally
+  // empty (no fabricated audio/cover/duration); the user binds real media and
+  // the probe reports honest values.
+  const addTemplateYouTubeVisualizer = useCallback(() => {
+    const template = youtubeVisualizerTemplate();
+    const idMap = new Map<string, string>();
+    const remappedNodes = template.nodes.map((n) => {
+      const newId = uuidv4();
+      idMap.set(n.id, newId);
+      return { ...n, id: newId } as AppNode;
+    });
+    const remappedEdges = template.edges.map((e) => ({
+      ...e,
+      id: uuidv4(),
+      source: idMap.get(e.source) ?? e.source,
+      target: idMap.get(e.target) ?? e.target,
+    }));
+    replaceGraph({ nodes: remappedNodes, edges: remappedEdges });
+    setTimeout(() => fitView({ duration: 0, maxZoom: 1, padding: 0.18 }), 0);
+  }, [replaceGraph, fitView]);
+
   return (
     <ContextMenu>
       <ContextMenuTrigger asChild>
@@ -426,6 +454,14 @@ function CanvasInner() {
               </p>
               <div className="mt-1 text-[11px] text-text-muted">or start with:</div>
               <div className="mt-2 flex flex-wrap items-center justify-center gap-2">
+                <button
+                  type="button"
+                  onClick={addTemplateYouTubeVisualizer}
+                  className="pointer-events-auto rounded-control px-2.5 py-1 text-[11px] font-medium text-text-on-accent transition-colors"
+                  style={{ backgroundColor: 'var(--accent)' }}
+                >
+                  YouTube Visualizer
+                </button>
                 <button
                   type="button"
                   onClick={addTemplateTextAiPreview}

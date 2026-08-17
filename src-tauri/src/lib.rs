@@ -220,6 +220,36 @@ async fn probe_environment(app_handle: AppHandle) -> runtime::EnvironmentHealth 
     state.runtime.probe_environment(sqlite_ready).await
 }
 
+/// Edit-time audio metadata probe for the Audio & Cover node's inline body
+/// renderer. Runs FFprobe on the selected audio path and returns the duration
+/// + sample rate + codec + channels the card readout + downstream Visualizer
+/// need before any run. Cancellable through a short-lived token so navigating
+/// away from the node doesn't leave FFprobe running.
+#[tauri::command]
+async fn probe_audio_metadata(
+    app_handle: AppHandle,
+    path: String,
+) -> Result<runtime::media::AudioMetadata, error::AppError> {
+    let state = app_handle.state::<AppState>();
+    // Short edit-time timeout so a malformed file never wedges the UI; the
+    // user can re-pick. A dedicated token lets a future "cancel pending probe"
+    // enhancement stop it without affecting runs.
+    let cancel = tokio_util::sync::CancellationToken::new();
+    let probe = state.runtime.probe_audio_metadata(&path, cancel.clone());
+    match tokio::time::timeout(std::time::Duration::from_secs(15), probe).await {
+        Ok(result) => result,
+        Err(_) => {
+            cancel.cancel();
+            Err(error::AppError::external(
+                "AUDIO_PROBE_TIMEOUT",
+                "Audio metadata probe timed out",
+                "FFprobe did not respond within 15 seconds.".to_string(),
+                false,
+            ))
+        }
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -237,9 +267,22 @@ pub fn run() {
 
             let db_path = app_dir.join("void_workflow.db");
             let db = Db::new(&db_path).expect("Failed to initialize SQLite database");
+            // Resolve the bundled sidecar directory. In a packaged build this is
+            // the install dir's `binaries/` folder (Tauri externalBin target);
+            // in `tauri dev` it resolves to the project's `src-tauri/binaries`
+            // if present, else None → FFmpeg resolves from PATH. Missing dir is
+            // fine (dev without a downloaded sidecar) — resolution just falls
+            // through to PATH, identical to pre-Phase-3 behavior.
+            let bundled_bin_dir = app
+                .path()
+                .resolve("binaries", tauri::path::BaseDirectory::Executable)
+                .ok();
             let runtime = Arc::new(
-                runtime::RuntimeServices::new(app_dir.clone())
-                    .expect("Failed to initialize runtime services"),
+                runtime::RuntimeServices::with_bundled_bin_dir(
+                    app_dir.clone(),
+                    bundled_bin_dir.filter(|dir| dir.is_dir()),
+                )
+                .expect("Failed to initialize runtime services"),
             );
 
             app.manage(AppState {
@@ -263,7 +306,8 @@ pub fn run() {
             update_runtime_settings,
             set_gemini_api_key,
             clear_gemini_api_key,
-            probe_environment
+            probe_environment,
+            probe_audio_metadata
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

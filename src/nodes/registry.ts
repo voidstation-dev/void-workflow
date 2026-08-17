@@ -34,7 +34,11 @@ export type IconName =
   | 'Save'
   | 'Layers'
   | 'Eye'
-  | 'ScrollText';
+  | 'ScrollText'
+  | 'Music'        // Audio & Cover node
+  | 'Image'        // Background Media (image mode)
+  | 'AudioWaveform'// Soundwave Visualizer
+  | 'MonitorPlay'; // Preview & Export
 
 // --- Port system (full visual system lands in Phase 5; shape/icon mapping here) ---
 export type PortType =
@@ -54,6 +58,13 @@ export interface Port {
   label: string;
   type: PortType;
   required?: boolean;
+  /**
+   * Optional ordinal connector badge (1, 2, 3…) rendered beside the handle dot
+   * on the node edge. Spec Tekna-style "Connector Badges" — opt-in per port.
+   * Most nodes leave this undefined and rely on the shape/icon/color type cues;
+   * the YouTube-automation nodes use it to make the input/output order explicit.
+   */
+  badge?: number;
 }
 
 // --- Config schema (drives the generic Inspector form in Phase 6) ---
@@ -90,6 +101,34 @@ export type NodeCategory = 'INPUT' | 'TEXT' | 'AI' | 'RULES' | 'VIDEO' | 'AUDIO'
 export type RegistryState = 'canonical' | 'frontend-only';
 export type ExecutionMode = 'runtime' | 'annotation' | 'viewer' | 'planned';
 
+/**
+ * BodyRenderer key — a string identifier resolvable through the BODY_RENDERERS
+ * map (see nodes/bodyRenderers/index.ts). The registry stays a plain data file
+ * (no React imports → no circular deps with BaseNode); BaseNode looks the key
+ * up and lazy-loads the component. When undefined, BaseNode falls back to the
+ * default `summarize(data)` description + chips body (§27 single-renderer
+ * contract preserved — the renderer is a pluggable slot, not a per-type node).
+ *
+ * The renderer receives the live node data + the updateNodeData callback so it
+ * can drive two-way inline editing (file pickers, type selectors) directly on
+ * the card, mirroring the Inspector's binding without a bespoke panel.
+ */
+export type BodyRendererKey =
+  | 'audioCover'
+  | 'backgroundMedia'
+  | 'soundwaveVisualizer'
+  | 'previewExport';
+
+/** Props every body renderer receives. Defined here so the registry has no
+ *  React import; the renderer components import this type. */
+export interface BodyRendererProps {
+  nodeId: string;
+  data: Record<string, unknown>;
+  /** Shallow merge into node.data (same action the Inspector uses). */
+  updateNodeData: (patch: Record<string, unknown>) => void;
+  selected: boolean;
+}
+
 export interface NodeDefinition {
   type: string;
   version: number;
@@ -107,12 +146,36 @@ export interface NodeDefinition {
   registryState: RegistryState;
   maturity?: 'stable' | 'beta' | 'design-only';
   /**
+   * Optional inline card-body renderer key (pluggable slot, §27 preserved).
+   * When present, BaseNode renders this component BETWEEN the header and the
+   * ports row, replacing the default `summarize` description/chips body. Used
+   * by the YouTube-automation nodes for inline file pickers, code-block
+   * parameter previews, the visualizer type selector, and the preview canvas.
+   */
+  bodyRenderer?: BodyRendererKey;
+  /**
+   * Data fields that must be non-empty for the node to run. Surfaced as
+   * WARNING problems by `deriveProblems` — advise-only, does NOT block the run
+   * (the node will then fail at runtime with an honest error if the value is
+   * still missing). Optional `when` predicate makes a field conditional on
+   * other data (e.g. backgroundMedia requires videoPath only when mode='video').
+   * Pure data inspection in the store — no IPC, contract-safe (inspects `data`,
+   * not port shape).
+   */
+  requiredDataFields?: {
+    key: string;
+    label: string;
+    hint?: string;
+    when?: (data: Record<string, unknown>) => boolean;
+  }[];
+  /**
    * Derive a short card-body summary + compact metadata chips from the node's
    * configured data (spec §6/§7/§13). Returns { description, chips }. The card
    * renders this BELOW the title; configuration stays in the Inspector (§32).
    * Pure local derivation — the component calls this with `node.data`; it is
    * NOT a Zustand selector (so it never returns a fresh object on every store
-   * snapshot, avoiding the infinite-loop trap).
+   * snapshot, avoiding the infinite-loop trap). Only used when `bodyRenderer`
+   * is undefined; renderers own their own body layout.
    */
   summarize?: (data: Record<string, unknown>) => { description?: string; chips?: string[] };
 }
@@ -137,6 +200,9 @@ const RAW_NODE_DEFINITIONS: Omit<NodeDefinition, 'version' | 'executionMode'>[] 
     inspectorTabs: ['Configuration'],
     executable: true,
     registryState: 'canonical',
+    requiredDataFields: [
+      { key: 'content', label: 'Text', hint: 'Add some text — an empty text source produces no output.' },
+    ],
     summarize: (data) => {
       const content = String(data.content ?? '').trim();
       return {
@@ -493,6 +559,191 @@ const RAW_NODE_DEFINITIONS: Omit<NodeDefinition, 'version' | 'executionMode'>[] 
       };
     },
   },
+
+  // ==========================================================================
+  // YouTube Video Automation — 4-node pipeline (Light UI Minimalist, Tekna-style).
+  // Phase 1 ships the frontend: registry + inline body renderers + Inspector
+  // binding + edit-time FFprobe metadata + canvas→visualizer data propagation.
+  // Phase 2 landed the Rust executors + FFmpeg filtergraph builder, so these
+  // are now `canonical` + `executable:true` + `executionMode:'runtime'` (the
+  // map below stamps the runtime mode). The controller's run guard lets them
+  // through and `start_run` renders a real MP4. Sidecar packaging is Phase 3.
+  // ==========================================================================
+  {
+    type: 'audioCover',
+    label: 'Audio & Cover',
+    category: 'AUDIO',
+    icon: 'Music',
+    description: 'Pick the audio track and cover art for the video.',
+    keywords: ['audio', 'music', 'mp3', 'wav', 'cover', 'thumbnail', 'youtube'],
+    ports: {
+      in: [],
+      out: [
+        { id: 'audio', label: 'Audio', type: 'audio', badge: 1 },
+        { id: 'metadata', label: 'Metadata', type: 'json', badge: 2 },
+        { id: 'cover', label: 'Cover', type: 'media', badge: 3 },
+      ],
+    },
+    configSchema: [
+      { key: 'audioPath', label: 'Audio file', type: 'file-picker', default: '', placeholder: 'track.mp3', help: '.mp3 or .wav — duration + sample rate are probed automatically.' },
+      { key: 'coverPath', label: 'Cover / thumbnail', type: 'file-picker', default: '', placeholder: 'cover.jpg', help: '.jpg or .png shown behind the visualizer.' },
+    ],
+    inspectorTabs: ['Configuration'],
+    executable: true,
+    registryState: 'canonical',
+    maturity: 'beta',
+    bodyRenderer: 'audioCover',
+    requiredDataFields: [
+      { key: 'audioPath', label: 'Audio file', hint: 'Choose an audio file (.mp3 / .wav) before running.' },
+    ],
+    summarize: (data) => {
+      const audio = String(data.audioPath ?? '').trim();
+      const name = audio ? audio.split(/[\\/]/).pop() ?? audio : '';
+      const durationMs = Number(data.durationMs ?? 0);
+      const sampleRate = Number(data.sampleRate ?? 0);
+      const chips: string[] = [];
+      if (name) chips.push(name);
+      if (durationMs > 0) chips.push(`${(durationMs / 1000).toFixed(1)}s`);
+      if (sampleRate > 0) chips.push(`${(sampleRate / 1000).toFixed(1)}kHz`);
+      return { description: 'Audio + cover source', chips: chips.length ? chips : ['No audio yet'] };
+    },
+  },
+  {
+    type: 'backgroundMedia',
+    label: 'Background Media',
+    category: 'MEDIA',
+    icon: 'Image',
+    description: 'Static image or short looping video behind the visualizer.',
+    keywords: ['background', 'image', 'video', 'loop', 'cover', 'youtube'],
+    ports: {
+      in: [{ id: 'cover', label: 'Cover', type: 'media', required: true, badge: 1 }],
+      out: [{ id: 'background', label: 'Background', type: 'media', badge: 1 }],
+    },
+    configSchema: [
+      { key: 'mode', label: 'Background type', type: 'select', default: 'image', options: [
+        { value: 'image', label: 'Static image' },
+        { value: 'video', label: 'Looping video' },
+      ], help: 'Image uses the incoming cover; Video loops a short .mp4 instead.' },
+      { key: 'videoPath', label: 'Loop video', type: 'file-picker', default: '', placeholder: 'loop.mp4', help: 'Used when Background type is Looping video.' },
+      { key: 'fit', label: 'Fit', type: 'select', default: 'cover', options: [
+        { value: 'cover', label: 'Cover' },
+        { value: 'contain', label: 'Contain' },
+        { value: 'stretch', label: 'Stretch' },
+      ] },
+      { key: 'scaleHeight', label: 'Output height', type: 'select', default: '1080', options: [
+        { value: '1080', label: '1080p' },
+        { value: '720', label: '720p' },
+        { value: '480', label: '480p' },
+      ], advanced: true },
+    ],
+    inspectorTabs: ['Configuration'],
+    executable: true,
+    registryState: 'canonical',
+    maturity: 'beta',
+    bodyRenderer: 'backgroundMedia',
+    // In image mode the background comes from the upstream `cover` edge (already
+    // guarded by REQUIRED_INPUT_MISSING). In video mode the node needs a local
+    // loop .mp4 — warn when that path is empty.
+    requiredDataFields: [
+      {
+        key: 'videoPath',
+        label: 'Loop video',
+        hint: 'Choose a loop .mp4 when Background type is Looping video.',
+        when: (data) => String(data.mode ?? 'image') === 'video',
+      },
+    ],
+    summarize: (data) => {
+      const mode = String(data.mode ?? 'image') === 'video' ? 'Video loop' : 'Static image';
+      const fit = String(data.fit ?? 'cover');
+      const fitLabel: Record<string, string> = { cover: 'Cover', contain: 'Contain', stretch: 'Stretch' };
+      return { description: 'Background layer', chips: [mode, fitLabel[fit] ?? fit] };
+    },
+  },
+  {
+    type: 'soundwaveVisualizer',
+    label: 'Soundwave Visualizer',
+    category: 'AUDIO',
+    icon: 'AudioWaveform',
+    description: 'Render an audio-reactive visualizer over the background.',
+    keywords: ['visualizer', 'waveform', 'spectrum', 'bars', 'audio', 'showwaves', 'showspectrum'],
+    ports: {
+      in: [
+        { id: 'audio', label: 'Audio', type: 'audio', required: true, badge: 1 },
+        { id: 'metadata', label: 'Metadata', type: 'json', badge: 2 },
+        { id: 'background', label: 'Background', type: 'media', required: true, badge: 3 },
+      ],
+      out: [{ id: 'video', label: 'Video', type: 'video', badge: 1 }],
+    },
+    configSchema: [
+      { key: 'visualizerType', label: 'Visualizer', type: 'select', default: 'frequencyBars', options: [
+        { value: 'frequencyBars', label: 'Frequency Bars' },
+        { value: 'waveform', label: 'Waveform' },
+        { value: 'circularSpectrum', label: 'Circular Spectrum' },
+      ], help: 'showwaves (Waveform), showspectrum (Circular Spectrum), or a bar approximation (Frequency Bars).' },
+      { key: 'barCount', label: 'Bar count', type: 'number', default: 48, min: 4, max: 256, step: 1, help: 'Number of bars for Frequency Bars / resolution for the others.' },
+      { key: 'colorAccent', label: 'Color accent', type: 'text', default: '#7669DE', placeholder: '#7669DE', help: 'Hex color for the visualizer stroke/fill.' },
+      { key: 'sensitivity', label: 'Sensitivity', type: 'slider', default: 1, min: 0.25, max: 4, step: 0.05, help: 'Scales how strongly the visualizer reacts to the audio.' },
+      { key: 'opacity', label: 'Opacity', type: 'slider', default: 0.85, min: 0.1, max: 1, step: 0.05, advanced: true },
+      { key: 'position', label: 'Position', type: 'select', default: 'bottom', options: [
+        { value: 'bottom', label: 'Bottom' },
+        { value: 'center', label: 'Center' },
+        { value: 'top', label: 'Top' },
+      ], advanced: true },
+    ],
+    inspectorTabs: ['Configuration'],
+    executable: true,
+    registryState: 'canonical',
+    maturity: 'beta',
+    bodyRenderer: 'soundwaveVisualizer',
+    summarize: (data) => {
+      const type = String(data.visualizerType ?? 'frequencyBars');
+      const typeLabel: Record<string, string> = {
+        frequencyBars: 'Frequency Bars', waveform: 'Waveform', circularSpectrum: 'Circular Spectrum',
+      };
+      const bars = Number(data.barCount ?? 48);
+      return { description: 'Audio-reactive overlay', chips: [typeLabel[type] ?? type, `${bars} bars`] };
+    },
+  },
+  {
+    type: 'previewExport',
+    label: 'Preview & Export',
+    category: 'OUTPUT',
+    icon: 'MonitorPlay',
+    description: 'Live-preview the composed video and render it with FFmpeg.',
+    keywords: ['preview', 'export', 'render', 'ffmpeg', 'output', 'youtube'],
+    ports: {
+      in: [{ id: 'video', label: 'Video', type: 'video', required: true, badge: 1 }],
+      out: [{ id: 'artifact', label: 'Artifact', type: 'artifact', badge: 1 }],
+    },
+    configSchema: [
+      { key: 'filename', label: 'Filename', type: 'text', default: 'visualizer.mp4', placeholder: 'visualizer.mp4' },
+      { key: 'outputDir', label: 'Output directory', type: 'file-picker', pickerMode: 'directory', default: '', placeholder: 'runs/<id>/', help: 'Empty = the run output folder.' },
+      { key: 'videoCodec', label: 'Video codec', type: 'select', default: 'h264', options: [
+        { value: 'h264', label: 'H.264' },
+        { value: 'h265', label: 'H.265 (HEVC)' },
+      ], advanced: true },
+      { key: 'fps', label: 'Frame rate', type: 'select', default: '30', options: [
+        { value: '24', label: '24 fps' },
+        { value: '30', label: '30 fps' },
+        { value: '60', label: '60 fps' },
+      ], advanced: true },
+      { key: 'overwrite', label: 'Overwrite behavior', type: 'select', default: 'rename', options: [
+        { value: 'rename', label: 'Rename if exists' },
+        { value: 'overwrite', label: 'Overwrite' },
+        { value: 'skip', label: 'Skip' },
+      ] },
+    ],
+    inspectorTabs: ['Configuration'],
+    executable: true,
+    registryState: 'canonical',
+    maturity: 'beta',
+    bodyRenderer: 'previewExport',
+    summarize: (data) => {
+      const fn = String(data.filename ?? 'visualizer.mp4').trim();
+      const fps = String(data.fps ?? '30');
+      return { description: 'Preview + render', chips: [fn, `${fps}fps`] };
+    },
+  },
 ];
 
 const plannedPort = (id: string, label: string, type: PortType, required = false): Port => ({ id, label, type, required });
@@ -596,16 +847,46 @@ const PLANNED_NODE_DEFINITIONS: NodeDefinition[] = [
 ];
 
 /** Runtime Contract V2 metadata is assigned in one place so every node has an
- * explicit schema version and scheduler participation mode. */
-export const NODE_DEFINITIONS: NodeDefinition[] = [...RAW_NODE_DEFINITIONS.map((definition) => ({
-  ...definition,
-  version: 2,
-  executionMode:
-    definition.type === 'markdownNote'
-      ? 'annotation'
-      : 'runtime' as ExecutionMode,
-  maturity: 'stable' as const,
-})), ...PLANNED_NODE_DEFINITIONS];
+ * explicit schema version and scheduler participation mode.
+ *
+ * The 4 YouTube-automation nodes (audioCover/backgroundMedia/soundwaveVisualizer/
+ * previewExport) are full runtime nodes with inline body renderers AND Rust
+ * executors (Phase 2): they run via `start_run` and produce a real MP4 through
+ * the FFmpeg filtergraph engine. They keep `maturity: 'beta'` (the visualizer
+ * pipeline is newer than the stable canonical nodes) but are `executionMode:
+ * 'runtime'` + `registryState: 'canonical'`, mirroring the Rust REGISTRY's
+ * execute_v2 specs with registered executors. */
+const YOUTUBE_AUTOMATION_TYPES = new Set([
+  'audioCover',
+  'backgroundMedia',
+  'soundwaveVisualizer',
+  'previewExport',
+]);
+
+export const NODE_DEFINITIONS: NodeDefinition[] = [...RAW_NODE_DEFINITIONS.map((definition) => {
+  if (definition.type === 'markdownNote') {
+    return { ...definition, version: 2, executionMode: 'annotation' as ExecutionMode, maturity: 'stable' as const };
+  }
+  if (YOUTUBE_AUTOMATION_TYPES.has(definition.type)) {
+    // Phase 2 landed the Rust executors + FFmpeg filtergraph builder, so these
+    // are now full runtime nodes: the controller's run guard no longer blocks
+    // them and `start_run` produces a real MP4. Keep the beta maturity the
+    // definition declares; stamp the v2 schema version + the runtime execution
+    // mode + flip registryState to canonical (the Rust REGISTRY now mirrors
+    // them as execute_v2 specs with registered executors). RAW_NODE_DEFINITIONS
+    // entries omit executionMode the way the canonical nodes do — it is assigned
+    // here so the runtime-contract assertion sees 'runtime', matching the
+    // shared fixture.
+    return {
+      ...definition,
+      version: 2,
+      executionMode: 'runtime' as ExecutionMode,
+      executable: true,
+      registryState: 'canonical' as RegistryState,
+    };
+  }
+  return { ...definition, version: 2, executionMode: 'runtime' as ExecutionMode, maturity: 'stable' as const };
+}), ...PLANNED_NODE_DEFINITIONS];
 
 export const NODE_DEFINITION_MAP: Record<string, NodeDefinition> = Object.fromEntries(
   NODE_DEFINITIONS.map((def) => [def.type, def]),

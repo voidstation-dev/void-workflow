@@ -151,6 +151,31 @@ impl NodeSpec {
                 .collect(),
         }
     }
+
+    /// Planned node pinned to schema v2 with a frozen port contract (the
+    /// YouTube-automation pipeline). Unlike `planned` (v1, design-only specs
+    /// that drift freely), these are contract-asserted against
+    /// `contracts/node-runtime-contract.json` on both sides, so they need v2 to
+    /// match the frontend registry version and survive the contract test.
+    pub fn planned_v2(
+        inputs: &[(&str, PortKind)],
+        outputs: &[(&str, PortKind)],
+        required_inputs: &[&str],
+    ) -> Self {
+        Self {
+            version: 2,
+            execution_mode: ExecutionMode::Planned,
+            inputs: inputs
+                .iter()
+                .map(|(id, kind)| ((*id).into(), *kind))
+                .collect(),
+            required_inputs: required_inputs.iter().map(|id| (*id).into()).collect(),
+            outputs: outputs
+                .iter()
+                .map(|(id, kind)| ((*id).into(), *kind))
+                .collect(),
+        }
+    }
 }
 
 pub struct NodeRegistry {
@@ -625,14 +650,22 @@ mod tests {
         ))
         .unwrap();
         let object = fixture.as_object().unwrap();
-        assert_eq!(
-            object.len(),
-            crate::workflow::REGISTRY
-                .specs()
-                .values()
-                .filter(|spec| spec.execution_mode != ExecutionMode::Planned)
-                .count()
-        );
+        // The shared contract fixture covers every node whose port contract is
+        // frozen + asserted on both sides: all non-planned specs PLUS the
+        // YouTube-automation planned_v2 specs (audioCover/backgroundMedia/
+        // soundwaveVisualizer/previewExport). The v1 design-only planned specs
+        // (trimClip, autoCaptions, …) are intentionally NOT in the fixture —
+        // their ports drift freely during design, so asserting them would
+        // couple a draft to a contract. Count must therefore equal non-planned
+        // specs + planned_v2 specs, not just non-planned.
+        let contract_covered = crate::workflow::REGISTRY
+            .specs()
+            .values()
+            .filter(|spec| {
+                spec.execution_mode != ExecutionMode::Planned || spec.version >= 2
+            })
+            .count();
+        assert_eq!(object.len(), contract_covered);
         for (node_type, expected) in object {
             let spec = crate::workflow::REGISTRY.spec(node_type).unwrap();
             let mode = match spec.execution_mode {

@@ -1,11 +1,27 @@
 use crate::error::{AppError, Result};
 use crate::runtime::RuntimeServices;
 use crate::workflow::executor::ProgressReporter;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::process::Stdio;
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, BufReader};
 use tokio::process::Command;
 use tokio_util::sync::CancellationToken;
+
+/// Edit-time audio metadata returned to the frontend for the Audio & Cover
+/// node's inline code-block readout + downstream visualizer defaults. A focused
+/// subset of the full `extract_media_info` output — only the audio-relevant
+/// fields the UI needs before a run. `#[serde(rename_all = "camelCase")]` keeps
+/// it in lockstep with the frontend `AudioMetadata` TS mirror.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct AudioMetadata {
+    pub duration_ms: u64,
+    pub sample_rate: u64,
+    pub audio_codec: String,
+    pub channels: u64,
+    pub bit_rate: Option<u64>,
+}
 
 impl RuntimeServices {
     pub async fn probe_media_json(&self, path: &str, cancel: CancellationToken) -> Result<Value> {
@@ -58,6 +74,61 @@ impl RuntimeServices {
                 error.to_string(),
                 false,
             )
+        })
+    }
+
+    /// Edit-time audio metadata probe for the Audio & Cover node. Runs FFprobe
+    /// on the selected audio file and returns the duration + sample rate +
+    /// codec + channels the inline card-body renderer + downstream Visualizer
+    /// need BEFORE any run. Reuses `probe_media_json` so the path/cancellation
+    /// story is identical to the runtime `mediaInfo` executor. Returns a
+    /// focused `AudioMetadata` subset; non-audio files yield a validation
+    /// error so the UI can show an honest "not audio" message rather than
+    /// zeros.
+    pub async fn probe_audio_metadata(
+        &self,
+        path: &str,
+        cancel: CancellationToken,
+    ) -> Result<AudioMetadata> {
+        let parsed = self.probe_media_json(path, cancel).await?;
+        let duration_ms = parsed
+            .pointer("/format/duration")
+            .and_then(Value::as_str)
+            .and_then(|value| value.parse::<f64>().ok())
+            .map(|seconds| (seconds * 1000.0).round() as u64)
+            .unwrap_or(0);
+        let audio = parsed
+            .get("streams")
+            .and_then(Value::as_array)
+            .and_then(|streams| {
+                streams
+                    .iter()
+                    .find(|stream| stream.get("codec_type").and_then(Value::as_str) == Some("audio"))
+            })
+            .ok_or_else(|| {
+                AppError::validation(
+                    "AUDIO_STREAM_MISSING",
+                    "The selected file has no audio stream.",
+                    serde_json::json!({ "path": path }),
+                )
+            })?;
+        Ok(AudioMetadata {
+            duration_ms,
+            sample_rate: audio
+                .get("sample_rate")
+                .and_then(Value::as_str)
+                .and_then(|value| value.parse::<u64>().ok())
+                .unwrap_or(0),
+            audio_codec: audio
+                .get("codec_name")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_string(),
+            channels: audio.get("channels").and_then(Value::as_u64).unwrap_or(0),
+            bit_rate: audio
+                .get("bit_rate")
+                .and_then(Value::as_str)
+                .and_then(|value| value.parse::<u64>().ok()),
         })
     }
 

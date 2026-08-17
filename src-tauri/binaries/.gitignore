@@ -1,0 +1,32 @@
+# Bundled FFmpeg/FFprobe sidecar binaries. Real binaries are large,
+# platform-specific, and LGPL/GPL-licensed → never committed. `scripts/
+# fetch-sidecars.*` downloads them here before `tauri build`.
+#
+# Tauri's externalBin requires the files to EXIST at build time (even for
+# `cargo test` / `tauri dev`), so small placeholder stubs are committed so the
+# context macro resolves. The Rust runtime ignores any binary smaller than
+# 256 KiB (clearly a stub) and falls through to PATH — real FFmpeg binaries are
+# multiple MB. Fetch scripts overwrite these stubs with real binaries.
+
+# Ignore everything by default...
+*
+
+# ...except the gitignore, the README, and the placeholder stubs (which the
+# fetch scripts overwrite with real binaries — those real binaries then match
+# the `*` ignore and stay out of version control).
+!.gitignore
+!README.md
+!ffmpeg-*-placeholder
+!ffprobe-*-placeholder
+!ffmpeg-x86_64-pc-windows-msvc.exe
+!ffprobe-x86_64-pc-windows-msvc.exe
+!ffmpeg-aarch64-pc-windows-msvc.exe
+!ffprobe-aarch64-pc-windows-msvc.exe
+!ffmpeg-x86_64-apple-darwin
+!ffprobe-x86_64-apple-darwin
+!ffmpeg-aarch64-apple-darwin
+!ffprobe-aarch64-apple-darwin
+!ffmpeg-x86_64-unknown-linux-gnu
+!ffprobe-x86_64-unknown-linux-gnu
+!ffmpeg-aarch64-unknown-linux-gnu
+!ffprobe-aarch64-unknown-linux-gnu

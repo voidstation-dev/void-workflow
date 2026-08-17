@@ -48,18 +48,50 @@ export function InsertEdge({
   sourcePosition = Position.Bottom,
   targetPosition = Position.Top,
   source,
+  target,
   markerEnd,
   style,
 }: EdgeProps) {
   const [pickerOpen, setPickerOpen] = useState(false);
   const [hovered, setHovered] = useState(false);
 
+  // Multi-edge spacing (spec §7.3): when two edges share the same (source,
+  // target) node pair — e.g. audioCover→soundwaveVisualizer carries BOTH
+  // `audio` and `metadata` on separate handles — React Flow v12 draws them on
+  // top of each other (getBezierPath routes from node-center tangents and
+  // ignores handle identity for vertical separation). Compute this edge's
+  // ordinal among the parallel edges (stable sort by id) and offset both
+  // endpoints perpendicular to the connection axis so the curves fan apart.
+  // For the common horizontal Left→Right / Right→Left routing, the perpendicular
+  // axis is Y, so we shift sourceY/targetY. Offset sign alternates around 0 so a
+  // pair straddles the original line rather than both shifting one way.
+  const parallelOffset = useWorkflowStore((s) => {
+    const peers = s.edges.filter(
+      (e) => e.source === source && e.target === target,
+    );
+    if (peers.length <= 1) return 0;
+    // Stable ascending order by id; this edge's index sets its lane.
+    const sorted = [...peers].sort((a, b) =>
+      a.id < b.id ? -1 : a.id > b.id ? 1 : 0,
+    );
+    const idx = sorted.findIndex((e) => e.id === id);
+    if (idx < 0) return 0;
+    // Even count: lanes −n/2 … +n/2 (symmetric, no centre lane).
+    // Odd count: lanes −(n−1)/2 … +(n−1)/2 (centre lane stays on the line).
+    const n = sorted.length;
+    const lane = idx - (n - 1) / 2;
+    return lane * 22; // 22px lane gap — readable separation, won't clip cards.
+  });
+
+  const shiftedSourceY = sourceY + parallelOffset;
+  const shiftedTargetY = targetY + parallelOffset;
+
   const [edgePath, labelX, labelY] = getBezierPath({
     sourceX,
-    sourceY,
+    sourceY: shiftedSourceY,
     sourcePosition,
     targetX,
-    targetY,
+    targetY: shiftedTargetY,
     targetPosition,
   });
 

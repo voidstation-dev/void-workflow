@@ -94,6 +94,22 @@ export function PortHandle({ port, direction, nodeSelected, nodeHovered, nodeId 
           {port.label}
         </span>
       )}
+      {/* Ordinal connector badge (Tekna-style 1/2/3). Opt-in via `port.badge`.
+          Rendered just OUTSIDE the handle dot, on the edge side, so it labels
+          the connection order without overlapping the handle hit target. Filled
+          accent when the port is connected; neutral outline otherwise. */}
+      {port.badge !== undefined && (
+        <span
+          className={cn(
+            'void-port-badge pointer-events-none absolute top-1/2 -translate-y-1/2',
+            connected && 'void-port-badge--connected',
+            direction === 'in' ? 'right-[14px]' : 'left-[14px]',
+          )}
+          aria-hidden="true"
+        >
+          {port.badge}
+        </span>
+      )}
       {/* nodeId is referenced so RF re-scopes connections if a node id changes;
           also keeps the prop "used" under noUnusedParameters. */}
       <span className="sr-only" aria-hidden="true">{nodeId}</span>

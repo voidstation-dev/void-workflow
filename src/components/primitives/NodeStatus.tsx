@@ -79,13 +79,18 @@ export function NodeStatus({ status, progress, message, compact = false }: NodeS
   // static glyph automatically under reduced-motion).
   const spins = (status === 'running' || status === 'queued');
   const label = message || STATUS_LABEL[status];
-  const hasProgress = progress !== null && progress > 0 && progress < 100;
+  // The store holds node progress as a 0..1 float (the controller clamps the
+  // backend's 0..1 `node-progress` payload at the IPC boundary). Convert to a
+  // 0..100 percent once, here, for all three display surfaces (aria label, the
+  // trailing % text, and the bottom progress-bar width) so they stay in sync.
+  const pct = progress !== null ? Math.min(100, Math.max(0, progress * 100)) : null;
+  const hasProgress = pct !== null && pct > 0 && pct < 100;
 
   return (
     <div
       role="status"
       aria-live="polite"
-      aria-label={`${STATUS_LABEL[status]}${progress !== null ? `, ${Math.round(progress)} percent` : ''}`}
+      aria-label={`${STATUS_LABEL[status]}${pct !== null ? `, ${Math.round(pct)} percent` : ''}`}
       className={cn(
         'relative flex items-center gap-1.5 border-t border-border-subtle bg-surface-panel',
         compact ? 'h-6 px-2' : 'h-7 px-3',
@@ -104,13 +109,13 @@ export function NodeStatus({ status, progress, message, compact = false }: NodeS
         aria-hidden="true"
       />
       <span className="truncate text-[12px] text-text-secondary">{label}</span>
-      {progress !== null && (
-        <span className="ml-auto shrink-0 text-[11px] text-text-muted">{Math.round(progress)}%</span>
+      {pct !== null && (
+        <span className="ml-auto shrink-0 text-[11px] text-text-muted">{Math.round(pct)}%</span>
       )}
       {hasProgress && (
         <span
           role="progressbar"
-          aria-valuenow={Math.round(progress!)}
+          aria-valuenow={Math.round(pct!)}
           aria-valuemin={0}
           aria-valuemax={100}
           aria-label="Node progress"
@@ -118,7 +123,7 @@ export function NodeStatus({ status, progress, message, compact = false }: NodeS
         >
           <span
             className="block h-full"
-            style={{ width: `${progress}%`, background: 'var(--status-running)' }}
+            style={{ width: `${pct}%`, background: 'var(--status-running)' }}
           />
         </span>
       )}

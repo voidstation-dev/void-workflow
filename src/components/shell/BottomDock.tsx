@@ -667,7 +667,6 @@ const RUN_ICON: Record<RunStatus, { Icon: LucideIcon; tone: string }> = {
 
 function RunPanel() {
   const runStatus = useWorkflowStore((s) => s.runStatus);
-  const runProgress = useWorkflowStore((s) => s.runProgress);
   const perNodeStatus = useWorkflowStore((s) => s.perNodeStatus);
   const nodes = useWorkflowStore((s) => s.nodes);
   const selectNode = useWorkflowStore((s) => s.selectNode);
@@ -678,9 +677,24 @@ function RunPanel() {
 
   const runMeta = RUN_ICON[runStatus] ?? RUN_ICON.idle;
   const RunIcon = runMeta.Icon;
-  const hasProgress = runProgress !== null && runProgress >= 0 && runProgress <= 100;
+  // Overall run progress. The store's `runProgress` is never written (no event
+  // listener calls setRunProgress), so derive it from the per-node statuses:
+  // average of completed (success/failed/skipped count as 100%) + running
+  // nodes' 0..1 progress. Per-node progress is 0..1 → scale to 0..100 here.
+  const derivedProgress = useMemo(() => {
+    if (entries.length === 0) return null;
+    let sum = 0;
+    for (const [, s] of entries) {
+      if (s.status === 'success' || s.status === 'failed' || s.status === 'skipped' || s.status === 'cancelled') sum += 100;
+      else if (s.progress !== null) sum += Math.min(100, Math.max(0, s.progress * 100));
+      else sum += 0; // queued/idle/running with no progress yet
+    }
+    return sum / entries.length;
+  }, [entries]);
+  const pct = derivedProgress;
+  const hasProgress = pct !== null && pct >= 0 && pct <= 100 && runStatus === 'running';
   const indeterminate = runStatus === 'running' && !hasProgress;
-  const progressFill = hasProgress ? `${Math.round(runProgress!)}%` : indeterminate ? '50%' : '0%';
+  const progressFill = hasProgress ? `${Math.round(pct!)}%` : indeterminate ? '50%' : '0%';
   const barTone =
     runStatus === 'succeeded' ? 'bg-status-success'
       : runStatus === 'failed' ? 'bg-status-error'
@@ -691,14 +705,14 @@ function RunPanel() {
     <div role="tabpanel" id="tabpanel-run" aria-labelledby="tab-run" className="flex h-full flex-col">
       {/* 2px progress bar at top (spec §9.5). Static 50% fill when indeterminate —
           no animation, reduced-motion safe (correction #4). */}
-      <div className="h-0.5 w-full bg-surface-elevated" role="progressbar" aria-label="Workflow run progress" aria-valuenow={hasProgress ? Math.round(runProgress!) : undefined} aria-valuemin={0} aria-valuemax={100}>
+      <div className="h-0.5 w-full bg-surface-elevated" role="progressbar" aria-label="Workflow run progress" aria-valuenow={hasProgress ? Math.round(pct!) : undefined} aria-valuemin={0} aria-valuemax={100}>
         <div className={cn('h-full', barTone)} style={{ width: progressFill }} />
       </div>
       <div className="flex h-9 shrink-0 items-center gap-2 border-b border-border-subtle px-3 text-[13px]">
         <RunIcon size={16} className={cn(runMeta.tone, runStatus === 'running' && 'animate-spin')} aria-hidden="true" />
         <span className="text-text-primary">Workflow Run</span>
         <span className={cn('capitalize', runMeta.tone)}>{runStatus}</span>
-        {hasProgress && <span className="ml-auto text-[12px] text-text-muted">{Math.round(runProgress!)}%</span>}
+        {hasProgress && <span className="ml-auto text-[12px] text-text-muted">{Math.round(pct!)}%</span>}
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto">
         {idle ? (

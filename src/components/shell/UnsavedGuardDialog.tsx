@@ -25,8 +25,11 @@ export function UnsavedGuardDialog() {
   useEffect(() => {
     if (!open) return;
     triggerRef.current = document.activeElement as HTMLElement | null;
-    const focusable = dialogRef.current?.querySelector<HTMLElement>('button, [href], [tabindex]:not([tabindex="-1"])');
-    focusable?.focus();
+    // Focus the primary action (Save) first so Enter activates it — not Cancel
+    // (the DOM-first button). Use a data attribute to pick it regardless of the
+    // button order in the DOM (Cancel/Discard/Save).
+    const primary = dialogRef.current?.querySelector<HTMLElement>('[data-primary="true"]');
+    (primary ?? dialogRef.current?.querySelector<HTMLElement>('button'))?.focus();
 
     // Tab trap — mirror KeyboardHelpDialog so Tab/Shift+Tab can't escape to the
     // background scrim (audit §4/Focus). Disabled buttons are skipped.
@@ -63,13 +66,20 @@ export function UnsavedGuardDialog() {
 
   return (
     <div className="fixed inset-0 z-[var(--z-modal)]">
-      <div aria-hidden="true" className="absolute inset-0 bg-surface-overlay" />
+      {/* Scrim: clicking outside the dialog cancels (matches KeyboardHelpDialog).
+          stopPropagation on the panel below keeps inner clicks from closing. */}
+      <div
+        aria-hidden="true"
+        className="absolute inset-0 bg-surface-overlay"
+        onClick={() => close(null)}
+      />
       <div
         ref={dialogRef}
         role="dialog"
         aria-modal="true"
         aria-labelledby="unsaved-title"
         aria-describedby="unsaved-desc"
+        onClick={(e) => e.stopPropagation()}
         className="absolute left-1/2 top-1/2 w-[360px] max-w-[90vw] -translate-x-1/2 -translate-y-1/2 rounded-panel border border-border-default bg-surface-elevated shadow-modal"
       >
         <div className="px-3 py-3">
@@ -97,13 +107,18 @@ export function UnsavedGuardDialog() {
             </button>
             <button
               type="button"
+              data-primary="true"
               disabled={saving}
               aria-busy={saving}
               onClick={() => {
                 setSaving(true);
-                void controller.save().then(() => {
+                void controller.save().then((ok) => {
                   setSaving(false);
-                  approveClose();
+                  // Only close the window when the save actually succeeded —
+                  // save() returns false on error (and has already surfaced a
+                  // toast). Closing on failure would silently lose the user's
+                  // changes. Keep the dialog open so they can retry or cancel.
+                  if (ok) approveClose();
                 });
               }}
               className="flex items-center gap-1.5 rounded-control bg-accent px-3 py-1.5 text-[12px] text-text-on-accent hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-50"

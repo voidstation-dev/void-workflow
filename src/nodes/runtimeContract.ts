@@ -103,6 +103,22 @@ export interface RuntimeSettings {
   concurrency: number;
 }
 
+/**
+ * Edit-time audio metadata mirror of the Rust `AudioMetadata` struct
+ * (`runtime::media::AudioMetadata`). Returned by the `probe_audio_metadata`
+ * Tauri command for the Audio & Cover node's inline body renderer. Stored on
+ * `node.data` (durationMs / sampleRate / audioCodec / channels) so the
+ * downstream Soundwave Visualizer reads it through the edit-time data
+ * propagation selector without a run.
+ */
+export interface AudioMetadata {
+  durationMs: number;
+  sampleRate: number;
+  audioCodec: string;
+  channels: number;
+  bitRate: number | null;
+}
+
 export interface HealthProbe {
   state: 'ready' | 'configured' | 'degraded' | 'down' | 'unknown';
   detail: string;

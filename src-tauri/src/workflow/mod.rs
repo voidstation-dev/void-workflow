@@ -95,6 +95,42 @@ lazy_static! {
                 outputs: Default::default(),
             },
         );
+        // YouTube Video Automation pipeline — 4 nodes. Phase 2 lands the Rust
+        // executors + the FFmpeg filtergraph builder, so these are now full
+        // runtime nodes: migrate_graph/validate_graph accept them, the scheduler
+        // executes them, and `start_run` produces a real MP4. Port contracts are
+        // pinned to schema v2 (execute_v2) so they stay asserted against the
+        // shared contract fixture on both sides, identical to the canonical
+        // nodes above. The frontend registry mirrors this flip (planned →
+        // runtime, frontend-only → canonical).
+        registry.register(
+            "audioCover",
+            NodeSpec::execute_v2(
+                &[],
+                &[("audio", Audio), ("metadata", Json), ("cover", Media)],
+                &[],
+            ),
+            nodes::audio_cover::AudioCoverNode,
+        );
+        registry.register(
+            "backgroundMedia",
+            NodeSpec::execute_v2(&[("cover", Media)], &[("background", Media)], &["cover"]),
+            nodes::background_media::BackgroundMediaNode,
+        );
+        registry.register(
+            "soundwaveVisualizer",
+            NodeSpec::execute_v2(
+                &[("audio", Audio), ("metadata", Json), ("background", Media)],
+                &[("video", Video)],
+                &["audio", "background"],
+            ),
+            nodes::soundwave_visualizer::SoundwaveVisualizerNode,
+        );
+        registry.register(
+            "previewExport",
+            NodeSpec::execute_v2(&[("video", Video)], &[("artifact", Artifact)], &["video"]),
+            nodes::preview_export::PreviewExportNode,
+        );
         type PlannedSpec = (
             &'static str,
             &'static [(&'static str, PortKind)],

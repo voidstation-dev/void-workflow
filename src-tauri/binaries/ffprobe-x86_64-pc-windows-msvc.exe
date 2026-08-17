@@ -1,0 +1,1 @@
+void-workflow sidecar placeholder — replace with a real FFmpeg binary via scripts/fetch-sidecars.* (see README.md). This stub exists only so tauri build generates context; the runtime ignores binaries smaller than 256KiB.

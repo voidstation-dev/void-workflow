@@ -10,5 +10,9 @@
   "saveArtifact": { "version": 2, "executionMode": "runtime", "inputs": { "artifact": "any" }, "requiredInputs": ["artifact"], "outputs": { "artifact": "artifact" } },
   "mediaMerge": { "version": 2, "executionMode": "runtime", "inputs": { "video": "video", "audio": "audio" }, "requiredInputs": ["video"], "outputs": { "video": "video" } },
   "preview": { "version": 2, "executionMode": "runtime", "inputs": { "input": "any" }, "requiredInputs": ["input"], "outputs": {} },
-  "markdownNote": { "version": 2, "executionMode": "annotation", "inputs": {}, "requiredInputs": [], "outputs": {} }
+  "markdownNote": { "version": 2, "executionMode": "annotation", "inputs": {}, "requiredInputs": [], "outputs": {} },
+  "audioCover": { "version": 2, "executionMode": "runtime", "inputs": {}, "requiredInputs": [], "outputs": { "audio": "audio", "metadata": "json", "cover": "media" } },
+  "backgroundMedia": { "version": 2, "executionMode": "runtime", "inputs": { "cover": "media" }, "requiredInputs": ["cover"], "outputs": { "background": "media" } },
+  "soundwaveVisualizer": { "version": 2, "executionMode": "runtime", "inputs": { "audio": "audio", "metadata": "json", "background": "media" }, "requiredInputs": ["audio", "background"], "outputs": { "video": "video" } },
+  "previewExport": { "version": 2, "executionMode": "runtime", "inputs": { "video": "video" }, "requiredInputs": ["video"], "outputs": { "artifact": "artifact" } }
 }

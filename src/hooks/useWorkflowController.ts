@@ -5,7 +5,7 @@ import { getCurrentWindow } from '@tauri-apps/api/window';
 import { v4 as uuidv4 } from 'uuid';
 import { useWorkflowStore, deriveProblems } from '@/store/workflowStore';
 import { NODE_DEFINITION_MAP } from '@/nodes/registry';
-import { normalizeAppError, serializeWorkflowGraph, type EnvironmentHealth, type NodeExecutionResult, type RuntimeSettings, type ValidationReport } from '@/nodes/runtimeContract';
+import { normalizeAppError, serializeWorkflowGraph, type AudioMetadata, type EnvironmentHealth, type NodeExecutionResult, type RuntimeSettings, type ValidationReport } from '@/nodes/runtimeContract';
 
 /**
  * useWorkflowController — the ONLY imperative Tauri writer (spec §2.2).
@@ -51,7 +51,7 @@ interface RunStatusPayload {
 
 export interface WorkflowController {
   init: () => Promise<void>;
-  save: () => Promise<void>;
+  save: () => Promise<boolean>;
   run: () => Promise<void>;
   stop: () => Promise<void>;
   openFolder: () => Promise<void>;
@@ -60,6 +60,10 @@ export interface WorkflowController {
   setGeminiApiKey: (apiKey: string) => Promise<void>;
   clearGeminiApiKey: () => Promise<void>;
   refreshEnvironment: () => Promise<EnvironmentHealth | null>;
+  /** Edit-time FFprobe metadata probe for the Audio & Cover node. Returns null
+   *  in the Vite web preview (no Tauri); throws the normalized AppError on
+   *  failure so the caller can surface `probeError` on the node. */
+  probeAudioMetadata: (path: string) => Promise<AudioMetadata | null>;
   pushToast: (toast: { kind: 'success' | 'info' | 'error'; title: string; description?: string }) => void;
   dismissToast: (id: string) => void;
   announce: (text: string) => void;
@@ -139,6 +143,13 @@ export function useWorkflowController(): WorkflowController {
     await refreshEnvironment();
   }, [refreshEnvironment]);
 
+  const probeAudioMetadata = useCallback<WorkflowController['probeAudioMetadata']>(async (path) => {
+    // Web preview has no FFprobe — return null so the renderer shows its
+    // "unknown until probed" state instead of erroring.
+    if (!isTauri()) return null;
+    return invoke<AudioMetadata>('probe_audio_metadata', { path });
+  }, []);
+
   const init = useCallback<WorkflowController['init']>(async () => {
     // Keep the Vite web preview usable for visual QA. Native persistence and
     // execution remain Tauri-only; the browser simply keeps the in-memory graph.
@@ -164,7 +175,7 @@ export function useWorkflowController(): WorkflowController {
 
   const save = useCallback<WorkflowController['save']>(async () => {
     const state = store.getState();
-    if (state.saveStatus === 'saving') return;
+    if (state.saveStatus === 'saving') return false;
     state.setSaving();
     try {
       const graphJson = JSON.stringify(serializeWorkflowGraph(state.nodes, state.edges));
@@ -177,10 +188,12 @@ export function useWorkflowController(): WorkflowController {
         clearTimer(t);
       }, 2500);
       addTimer(t);
+      return true;
     } catch (err) {
       const error = normalizeAppError(err);
       store.getState().setSaveError(error.message);
       pushToast({ kind: 'error', title: error.title, description: errorDescription(err) });
+      return false;
     }
   }, [store, pushToast]);
 
@@ -208,16 +221,32 @@ export function useWorkflowController(): WorkflowController {
     try {
       const graphJson = JSON.stringify(serializeWorkflowGraph(state.nodes, state.edges));
       const validation = await invoke<ValidationReport>('validate_workflow', { graphJson });
-      store.getState().setProblems(validation.problems);
-      if (!validation.valid) {
+      // Merge backend structural problems (errors: ports/cycles/cardinality) with
+      // frontend value warnings (REQUIRED_VALUE_MISSING, advise-only). Both share
+      // the Problem shape and render in the Problems dock together.
+      const frontendProblems = deriveProblems(state);
+      const merged = [...validation.problems, ...frontendProblems];
+      store.getState().setProblems(merged);
+      const errorCount = merged.filter((p) => p.severity === 'error').length;
+      if (errorCount > 0) {
         store.getState().setDockTab('problems');
         pushToast({
           kind: 'error',
           title: 'Workflow needs attention',
-          description: `${validation.problems.length} problem${validation.problems.length === 1 ? '' : 's'} must be fixed before this workflow can run.`,
+          description: `${errorCount} error${errorCount === 1 ? '' : 's'} must be fixed before this workflow can run.`,
         });
         announce('Run blocked: workflow validation failed');
         return;
+      }
+      // No hard errors — warnings are advisory and do NOT block the run. Surface
+      // them so the user knows a node may fail at runtime (e.g. empty audioPath).
+      const warnings = merged.filter((p) => p.severity === 'warning');
+      if (warnings.length > 0) {
+        pushToast({
+          kind: 'info',
+          title: `${warnings.length} warning${warnings.length === 1 ? '' : 's'}`,
+          description: warnings.map((w) => w.message).join(' ').slice(0, 160) || undefined,
+        });
       }
       state.setRunStarting();
       const runId = await invoke<number>('start_run', { projectId: state.projectId, graphJson });
@@ -312,6 +341,31 @@ export function useWorkflowController(): WorkflowController {
       const normalized = (p.status || '').toLowerCase();
       if (!allowed.includes(normalized as typeof allowed[number])) return;
       store.getState().setNodeStatus(p.nodeId, normalized as typeof allowed[number], p.message ?? undefined);
+      // Surface per-node run failures/skips in the Problems dock (not just the
+      // card footer + Console). Dedup by nodeId+runId so repeated events for the
+      // same node produce one entry. failed → error (also opens the dock);
+      // skipped → warning (downstream of a failed node).
+      if (normalized === 'failed') {
+        store.getState().pushRuntimeProblem({
+          id: `runtime-failed-${p.nodeId}-${p.runId}`,
+          severity: 'error',
+          code: 'NODE_FAILED_AT_RUNTIME',
+          title: 'Node failed during run',
+          nodeId: p.nodeId,
+          message: p.message ?? 'Node reported an error.',
+          hint: 'Check the Console for the full error, fix the node, then re-run.',
+        });
+        store.getState().setDockTab('problems');
+      } else if (normalized === 'skipped') {
+        store.getState().pushRuntimeProblem({
+          id: `runtime-skipped-${p.nodeId}-${p.runId}`,
+          severity: 'warning',
+          code: 'NODE_SKIPPED',
+          title: 'Node skipped',
+          nodeId: p.nodeId,
+          message: p.message ?? 'Upstream dependency failed; this node was skipped.',
+        });
+      }
     }).then((f) => { unlistenStatus = f; });
 
     listen<NodeResultPayload>('node-result', (event) => {
@@ -331,7 +385,15 @@ export function useWorkflowController(): WorkflowController {
       const p = event.payload;
       const current = store.getState();
       if ((current.runId === null && current.runStatus !== 'starting') || (current.runId !== null && p.runId !== current.runId)) return;
+      // Per-node progress is stored 0..1 (the backend payload range); the node
+      // footer converts to percent for display.
       store.getState().setNodeProgress(p.nodeId, Math.max(0, Math.min(1, p.progress)));
+      // Overall run progress: the currently-running node's progress, scaled to
+      // 0..100 (what the BottomDock summary + WorkflowHeader expect). Cleared on
+      // run terminal. A multi-node run with parallel nodes will jump between
+      // them, but that matches "which node is running right now" — acceptable
+      // for a single progress bar; the per-node footers carry exact per-node %.
+      store.getState().setRunProgress(Math.max(0, Math.min(100, p.progress * 100)));
     }).then((f) => { unlistenProgress = f; });
 
     listen<RunStatusPayload>('run-status', (event) => {
@@ -345,12 +407,18 @@ export function useWorkflowController(): WorkflowController {
       const startedAt = state.runStartedAt ?? Date.now() - p.durationMs;
       const uiStatus = p.status === 'completed' ? 'succeeded' : p.status;
       state.setRunTerminal(uiStatus, p.error ?? undefined);
+      // Capture the first failed node for the History entry (previously always
+      // undefined). Scans perNodeStatus rather than trusting the generic run
+      // error message, which carries "One or more nodes failed" with no node id.
+      const failedNode =
+        Object.entries(store.getState().perNodeStatus).find(([, s]) => s.status === 'failed')?.[0] ?? null;
       state.replaceHistoryEntry({
         runId: p.runId,
         status: uiStatus,
         startedAt,
         endedAt: Date.now(),
         duration: p.durationMs,
+        failedNode: failedNode ?? undefined,
       });
       if (uiStatus === 'failed') {
         state.setDockTab('problems');
@@ -410,8 +478,9 @@ export function useWorkflowController(): WorkflowController {
     setGeminiApiKey,
     clearGeminiApiKey,
     refreshEnvironment,
+    probeAudioMetadata,
     pushToast,
     dismissToast,
     announce,
-  }), [init, save, run, stop, openFolder, getRuntimeSettings, updateRuntimeSettings, setGeminiApiKey, clearGeminiApiKey, refreshEnvironment, pushToast, dismissToast, announce]);
+  }), [init, save, run, stop, openFolder, getRuntimeSettings, updateRuntimeSettings, setGeminiApiKey, clearGeminiApiKey, refreshEnvironment, probeAudioMetadata, pushToast, dismissToast, announce]);
 }

@@ -5,6 +5,7 @@ import { NODE_DEFINITION_MAP } from '@/nodes/registry';
 import { getNodeIcon } from '@/components/shell/icons';
 import { NodeStatus } from '@/components/primitives/NodeStatus';
 import { ContextMenu, ContextMenuTrigger } from '@/components/primitives/ContextMenu';
+import { getBodyRenderer, BodyRendererSlot } from './bodyRenderers';
 import { PortHandle } from './PortHandle';
 import { cn } from '@/lib/utils';
 
@@ -68,6 +69,20 @@ function BaseNodeComponent({ id, type, data, selected }: NodeProps<AppNode>) {
 
   const label = data?.label ?? def?.label ?? type ?? 'Node';
   const showFooter = !!nodeStatus && nodeStatus.status !== 'idle';
+  // Status-driven card border (additive to the footer accent). The running node
+  // gets an accent border so it's visible across the canvas at a glance; a
+  // failed node gets an error border; skipped/cancelled get a warning border.
+  // Only applied when NOT selected, so the selection ring/border still wins.
+  // Uses the same status tokens as NodeStatus (--color-status-running etc.).
+  const status = nodeStatus?.status;
+  const statusBorder =
+    status === 'running'
+      ? 'border-status-running'
+      : status === 'failed'
+        ? 'border-status-error'
+        : status === 'skipped' || status === 'cancelled'
+          ? 'border-status-warning'
+          : '';
 
   const accessibleName = `${label}${selected ? ', selected' : ''}`;
 
@@ -84,6 +99,17 @@ function BaseNodeComponent({ id, type, data, selected }: NodeProps<AppNode>) {
   // (spec §15: no toolbar on hover). NodeToolbar is a child of the node root so
   // React Flow transforms it with the same pan/zoom matrix (no manual math).
   const showToolbar = !!selected && !!def;
+
+  // Pluggable inline body renderer (§27 single-renderer contract preserved).
+  // When the registry declares `bodyRenderer`, render that component between
+  // the header and the ports row INSTEAD of the default description/chips body.
+  // The renderer owns its layout (file pickers, code-block readouts, preview
+  // canvas) and binds two-way to the store via updateNodeData — no per-node-type
+  // node component. Falls back to the summarize() body below when undefined.
+  const BodyRenderer = def ? getBodyRenderer(def.bodyRenderer) : null;
+  // updateNodeData is a stable store action; selecting it once is cheap and
+  // gives the renderer a patch callback mirroring the Inspector's binding.
+  const updateNodeData = useWorkflowStore((s) => s.updateNodeData);
 
   // Node context menu (spec §53): right-clicking a node opens its menu. On
   // open, make this node the single selection so the menu's actions target the
@@ -103,7 +129,7 @@ function BaseNodeComponent({ id, type, data, selected }: NodeProps<AppNode>) {
         'workflow-node relative min-w-[320px] max-w-[380px] overflow-visible rounded-[14px] border bg-surface-panel shadow-node transition-[box-shadow,border-color]',
         selected
           ? 'border-border-focus bg-surface-elevated shadow-node-selected ring-1 ring-border-focus ring-offset-1 ring-offset-surface-canvas'
-          : 'border-border-default',
+          : cn('border-border-default', statusBorder),
       )}
     >
       {showToolbar && (
@@ -122,26 +148,40 @@ function BaseNodeComponent({ id, type, data, selected }: NodeProps<AppNode>) {
         </span>
       </div>
 
-      {/* Body — description + NodeMeta chips. Detail mode only; outline mode
-          collapses the card to header + ports (low visual noise, spec §7). */}
-      {nodeCardMode === 'detail' && (description || chips?.length) && (
-        <div className="flex flex-col gap-1.5 px-4 pb-3">
-          {description && (
-            <p className="text-[11px] leading-relaxed text-text-secondary">{description}</p>
-          )}
-          {chips && chips.length > 0 && (
-            <div className="flex flex-wrap items-center gap-1" aria-hidden="true">
-              {chips.map((chip, i) => (
-                <span
-                  key={`${chip}-${i}`}
-                  className="rounded-full border border-border-subtle bg-surface-hover px-2 py-0.5 text-[10px] text-text-secondary"
-                >
-                  {chip}
-                </span>
-              ))}
-            </div>
-          )}
-        </div>
+      {/* Body — inline renderer OR default description + NodeMeta chips.
+          Detail mode only; outline mode collapses the card to header + ports
+          (low visual noise, spec §7). When `def.bodyRenderer` is set, the
+          pluggable renderer owns the body (file pickers, code-block readouts,
+          preview canvas); otherwise the registry's `summarize(data)` drives the
+          description + chips. Both paths are pure functions of node.data. */}
+      {nodeCardMode === 'detail' && BodyRenderer ? (
+        <BodyRendererSlot
+          component={BodyRenderer}
+          nodeId={id}
+          data={data ?? {}}
+          updateNodeData={(patch) => updateNodeData(id, patch)}
+          selected={!!selected}
+        />
+      ) : (
+        nodeCardMode === 'detail' && (description || chips?.length) && (
+          <div className="flex flex-col gap-1.5 px-4 pb-3">
+            {description && (
+              <p className="text-[11px] leading-relaxed text-text-secondary">{description}</p>
+            )}
+            {chips && chips.length > 0 && (
+              <div className="flex flex-wrap items-center gap-1" aria-hidden="true">
+                {chips.map((chip, i) => (
+                  <span
+                    key={`${chip}-${i}`}
+                    className="rounded-full border border-border-subtle bg-surface-hover px-2 py-0.5 text-[10px] text-text-secondary"
+                  >
+                    {chip}
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
+        )
       )}
 
       {/* Typed ports row: input LEFT, output RIGHT. Each PortHandle is gated on

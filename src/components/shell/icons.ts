@@ -13,6 +13,10 @@ import {
   Layers,
   Eye,
   ScrollText,
+  Music,
+  Image,
+  AudioWaveform,
+  MonitorPlay,
   Hash,
   ToggleLeft,
   Braces,
@@ -46,6 +50,10 @@ export const NODE_ICONS: Record<IconName, LucideIcon> = {
   Layers,
   Eye,
   ScrollText,
+  Music,
+  Image,
+  AudioWaveform,
+  MonitorPlay,
 };
 
 export function getNodeIcon(name: IconName): LucideIcon {

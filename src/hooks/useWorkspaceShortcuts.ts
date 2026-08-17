@@ -108,6 +108,15 @@ export function useWorkspaceShortcuts(controller: WorkflowController): void {
         }
       }
 
+      // While ANY modal dialog is open, bail after the Escape branch above.
+      // The dialog owns focus + its own keydown handling (Tab trap, Enter to
+      // activate the focused button). Letting F6/Enter/Space/Ctrl-S/arrows fall
+      // through to the handlers below would hijack the dialog's button
+      // activation (Enter was being swallowed to fire Run/Stop) and let
+      // Ctrl+S save mid-dialog. Return without preventDefault so the event
+      // reaches the dialog's buttons natively.
+      if (store.dialog !== null) return;
+
       // F6 / Shift+F6 cycle landmarks — works everywhere.
       if (e.key === 'F6') {
         e.preventDefault();

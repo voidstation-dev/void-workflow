@@ -269,6 +269,10 @@ export interface ProblemsSlice {
   problems: Problem[];
   selectedProblemId: string | null;
   setProblems: (problems: Problem[]) => void;
+  /** Append a run-time problem (e.g. a node that failed/skipped mid-run)
+   *  WITHOUT clobbering pre-run validation problems. Dedups by `id` so repeated
+   *  node-status events for the same node+run produce a single dock entry. */
+  pushRuntimeProblem: (problem: Problem) => void;
   selectProblem: (id: string | null) => void;
 }
 
@@ -442,6 +446,28 @@ export function deriveProblems(state: WorkflowState): Problem[] {
         message: `${def.label} is marked Coming later and has no runtime executor.`,
         hint: 'Remove the planned node before running this workflow.',
       });
+    }
+    // Required *value* check (spec §pre-run): warn when a node is missing a
+    // required scalar data field. Advise-only — does NOT block the run. The
+    // node will then fail at runtime with an honest error if still empty.
+    // Conditional fields (def.requiredDataFields[].when) are only checked when
+    // their predicate passes (e.g. backgroundMedia.videoPath only when mode='video').
+    const data = (node.data ?? {}) as Record<string, unknown>;
+    for (const field of def.requiredDataFields ?? []) {
+      if (field.when && !field.when(data)) continue;
+      const raw = data[field.key];
+      const empty = raw == null || raw === '' || (typeof raw === 'string' && raw.trim() === '');
+      if (empty) {
+        problems.push({
+          id: `missing-value-${node.id}-${field.key}`,
+          severity: 'warning',
+          code: 'REQUIRED_VALUE_MISSING',
+          title: `${def.label} needs a value`,
+          nodeId: node.id,
+          message: `${field.label} is empty on ${def.label}.`,
+          hint: field.hint ?? null,
+        });
+      }
     }
   }
   return problems;
@@ -912,6 +938,10 @@ export const useWorkflowStore = create<WorkflowState>()(
       problems: [],
       selectedProblemId: null,
       setProblems: (problems) => set({ problems }),
+      pushRuntimeProblem: (problem) =>
+        set((s) => ({
+          problems: s.problems.some((p) => p.id === problem.id) ? s.problems : [...s.problems, problem],
+        })),
       selectProblem: (id) => set({ selectedProblemId: id }),
 
       /* ---- uiSlice ---- */
