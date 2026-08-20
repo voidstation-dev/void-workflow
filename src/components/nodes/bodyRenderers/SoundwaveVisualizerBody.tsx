@@ -1,33 +1,79 @@
-import { useRef } from 'react';
-import { AudioWaveform, BarChart3, Circle, Pause, Play, Sliders } from 'lucide-react';
+import { Sliders } from 'lucide-react';
 import type { BodyRendererProps } from '@/nodes/registry';
-import { useUpstreamAudioMetadata } from '@/hooks/useUpstreamAudioMetadata';
-import { useLiveVisualizer, type VisualizerType } from '@/hooks/useLiveVisualizer';
+import { useUpstreamAudioMetadata, useUpstreamBackground } from '@/hooks/useUpstreamAudioMetadata';
+import type { VisualizerType } from '@/hooks/useLiveVisualizer';
 import { cn } from '@/lib/utils';
 
 /**
- * SoundwaveVisualizerBody — inline card body for the Soundwave Visualizer node.
+ * SoundwaveVisualizerBody — lightweight, high-performance inline card body for Soundwave Visualizer.
  *
- * A 3-way visualizer-type selector (Frequency Bars / Waveform / Circular
- * Spectrum) that maps to FFmpeg's showfreqs / showwaves=cline / avectorscope
- * filters at render time, plus compact inline controls for Bar count, Color
- * accent and Sensitivity — the three parameters the spec calls out.
- *
- * A LIVE preview canvas sits at the top of the body: it walks the upstream
- * `audio` edge to the Audio & Cover node for the selected audio file, then
- * drives a Web Audio AnalyserNode + canvas animation that mirrors the FFmpeg
- * filter the Rust executor will bake into the MP4 — using the EXACT type /
- * bar count / accent / sensitivity the user is editing right now, so every
- * tweak is visible before a run. The canvas is a PREVIEW only; the
- * authoritative render is the Rust pipeline. Honest placeholder when no audio
- * is connected upstream. Works in both Tauri (fs path → convertFileSrc) and a
- * plain browser (blob URL from the HTML file-input fallback).
+ * Uses static vector/SVG visual thumbnail cards for switching styles without running
+ * continuous Canvas animation loops in the node card. This ensures 0% CPU overhead,
+ * prevents canvas lag, and keeps dragging/zooming across the workflow completely smooth.
  */
-const VISUALIZERS = [
-  { value: 'frequencyBars', label: 'Bars', icon: BarChart3 },
-  { value: 'waveform', label: 'Wave', icon: AudioWaveform },
-  { value: 'circularSpectrum', label: 'Circle', icon: Circle },
-] as const;
+
+interface VisualizerOption {
+  value: VisualizerType;
+  label: string;
+  desc: string;
+  renderThumbnail: (color: string, active: boolean) => React.ReactNode;
+}
+
+const VISUALIZERS: VisualizerOption[] = [
+  {
+    value: 'frequencyBars',
+    label: 'Bars',
+    desc: 'Frequency spectrum',
+    renderThumbnail: (color, active) => (
+      <svg viewBox="0 0 70 30" className="h-7 w-full" fill="none">
+        <rect x="4" y="18" width="4.5" height="12" rx="1.5" fill={color} fillOpacity={active ? 0.6 : 0.3} />
+        <rect x="11" y="12" width="4.5" height="18" rx="1.5" fill={color} fillOpacity={active ? 0.8 : 0.4} />
+        <rect x="18" y="5" width="4.5" height="25" rx="1.5" fill={color} fillOpacity={active ? 1 : 0.6} />
+        <rect x="25" y="14" width="4.5" height="16" rx="1.5" fill={color} fillOpacity={active ? 0.7 : 0.35} />
+        <rect x="32" y="2" width="4.5" height="28" rx="1.5" fill={color} fillOpacity={active ? 1 : 0.6} />
+        <rect x="39" y="8" width="4.5" height="22" rx="1.5" fill={color} fillOpacity={active ? 0.9 : 0.45} />
+        <rect x="46" y="16" width="4.5" height="14" rx="1.5" fill={color} fillOpacity={active ? 0.7 : 0.35} />
+        <rect x="53" y="7" width="4.5" height="23" rx="1.5" fill={color} fillOpacity={active ? 1 : 0.5} />
+        <rect x="60" y="20" width="4.5" height="10" rx="1.5" fill={color} fillOpacity={active ? 0.5 : 0.25} />
+      </svg>
+    ),
+  },
+  {
+    value: 'waveform',
+    label: 'Wave',
+    desc: 'Oscilloscope line',
+    renderThumbnail: (color, active) => (
+      <svg viewBox="0 0 70 30" className="h-7 w-full" fill="none">
+        <path
+          d="M 3 15 Q 12 15, 17 6 T 28 24 T 38 3 T 48 27 T 58 10 T 67 15"
+          stroke={color}
+          strokeWidth={active ? 2.5 : 1.8}
+          strokeOpacity={active ? 1 : 0.5}
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+      </svg>
+    ),
+  },
+  {
+    value: 'circularSpectrum',
+    label: 'Circle',
+    desc: 'Radial spectrum',
+    renderThumbnail: (color, active) => (
+      <svg viewBox="0 0 70 30" className="h-7 w-full" fill="none">
+        <circle cx="35" cy="15" r="5.5" stroke={color} strokeWidth="1.2" strokeOpacity={active ? 0.8 : 0.4} />
+        <line x1="35" y1="6" x2="35" y2="1.5" stroke={color} strokeWidth="1.8" strokeLinecap="round" strokeOpacity={active ? 1 : 0.5} />
+        <line x1="35" y1="24" x2="35" y2="28.5" stroke={color} strokeWidth="1.8" strokeLinecap="round" strokeOpacity={active ? 1 : 0.5} />
+        <line x1="26" y1="15" x2="21.5" y2="15" stroke={color} strokeWidth="1.8" strokeLinecap="round" strokeOpacity={active ? 1 : 0.5} />
+        <line x1="44" y1="15" x2="48.5" y2="15" stroke={color} strokeWidth="1.8" strokeLinecap="round" strokeOpacity={active ? 1 : 0.5} />
+        <line x1="28.5" y1="8.5" x2="24.5" y2="4.5" stroke={color} strokeWidth="1.8" strokeLinecap="round" strokeOpacity={active ? 0.9 : 0.4} />
+        <line x1="41.5" y1="8.5" x2="45.5" y2="4.5" stroke={color} strokeWidth="1.8" strokeLinecap="round" strokeOpacity={active ? 0.9 : 0.4} />
+        <line x1="28.5" y1="21.5" x2="24.5" y2="25.5" stroke={color} strokeWidth="1.8" strokeLinecap="round" strokeOpacity={active ? 0.9 : 0.4} />
+        <line x1="41.5" y1="21.5" x2="45.5" y2="25.5" stroke={color} strokeWidth="1.8" strokeLinecap="round" strokeOpacity={active ? 0.9 : 0.4} />
+      </svg>
+    ),
+  },
+];
 
 export function SoundwaveVisualizerBody({ nodeId, data, updateNodeData }: BodyRendererProps) {
   const visualizerType = String(data.visualizerType ?? 'frequencyBars') as VisualizerType;
@@ -36,72 +82,63 @@ export function SoundwaveVisualizerBody({ nodeId, data, updateNodeData }: BodyRe
   const sensitivity = Number(data.sensitivity ?? 1);
 
   const upstream = useUpstreamAudioMetadata(nodeId, 'audio');
+  const upstreamBg = useUpstreamBackground(nodeId);
   const audioPath = upstream?.audioPath ?? '';
-  const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const live = useLiveVisualizer(
-    canvasRef,
-    audioPath,
-    visualizerType,
-    barCount,
-    colorAccent,
-    sensitivity,
-  );
+  const backgroundPath = upstreamBg?.backgroundPath ?? '';
 
   return (
-    <div className="flex flex-col gap-2 px-4 pb-3">
-      {/* Live preview canvas — renders the visualizer in real time against the
-          upstream audio, mirroring the FFmpeg filter with the current config.
-          Honest placeholder when no audio is bound upstream. */}
-      <div
-        className="relative aspect-video w-full overflow-hidden rounded-control border border-border-subtle bg-surface-hover"
-        aria-label="Live visualizer preview"
-        role="img"
-      >
-        {audioPath ? (
-          <canvas ref={canvasRef} className="h-full w-full" aria-label="Live visualizer preview" />
-        ) : (
-          <div className="absolute inset-0 flex flex-col items-center justify-center gap-1 text-text-muted">
-            <AudioWaveform size={22} aria-hidden="true" />
-            <span className="text-[10px]">Connect audio to preview live</span>
-          </div>
-        )}
-        {audioPath && (
-          <span className="absolute bottom-1 left-2 rounded-full bg-surface-overlay px-1.5 py-0.5 text-[9px] text-text-on-accent">
-            {live.playing ? 'live' : 'preview'}
-          </span>
-        )}
-      </div>
-
-      {/* Visualizer type selector — 3 icon segments. */}
-      <div
-        role="radiogroup"
-        aria-label="Visualizer type"
-        className="grid grid-cols-3 gap-1 rounded-control border border-border-subtle bg-surface-hover p-0.5"
-      >
-        {VISUALIZERS.map((v) => {
-          const Icon = v.icon;
-          const active = visualizerType === v.value;
-          return (
-            <button
-              key={v.value}
-              type="button"
-              role="radio"
-              aria-checked={active}
-              onClick={() => updateNodeData({ visualizerType: v.value })}
-              className={cn(
-                'inline-flex items-center justify-center gap-1 rounded-control px-1 py-1 text-[10px] transition-colors',
-                active ? 'bg-surface-panel text-text-primary shadow-node-soft' : 'text-text-muted hover:text-text-secondary',
-              )}
-            >
-              <Icon size={12} aria-hidden="true" />
-              {v.label}
-            </button>
-          );
-        })}
-      </div>
-
-      {/* Inline parameters: bar count, color accent, sensitivity. */}
+    <div className="flex flex-col gap-2.5 px-4 pb-3">
+      {/* Visual Style Cards Grid (Static SVG Thumbnails) */}
       <div className="flex flex-col gap-1.5">
+        <div className="flex items-center justify-between">
+          <span className="text-[10px] font-medium uppercase tracking-wider text-text-muted">Visualizer Style</span>
+          <span className="text-[9px] text-text-muted">
+            {VISUALIZERS.find((v) => v.value === visualizerType)?.desc}
+          </span>
+        </div>
+
+        <div
+          role="radiogroup"
+          aria-label="Visualizer style"
+          className="grid grid-cols-3 gap-1.5"
+        >
+          {VISUALIZERS.map((v) => {
+            const active = visualizerType === v.value;
+            return (
+              <button
+                key={v.value}
+                type="button"
+                role="radio"
+                aria-checked={active}
+                onClick={() => updateNodeData({ visualizerType: v.value })}
+                className={cn(
+                  'group flex flex-col items-center justify-between rounded-control border p-1.5 transition-all text-left',
+                  active
+                    ? 'border-accent bg-accent/10 shadow-node-soft'
+                    : 'border-border-subtle bg-surface-hover hover:border-border-focus hover:bg-surface-hover/80',
+                )}
+              >
+                {/* SVG Visual Waveform Representation */}
+                <div className="flex h-8 w-full items-center justify-center">
+                  {v.renderThumbnail(active ? colorAccent : 'currentColor', active)}
+                </div>
+
+                <span
+                  className={cn(
+                    'mt-1 text-[10px] font-medium tracking-tight transition-colors',
+                    active ? 'text-text-primary font-semibold' : 'text-text-muted group-hover:text-text-secondary',
+                  )}
+                >
+                  {v.label}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Inline parameters: bar count, color accent, sensitivity */}
+      <div className="flex flex-col gap-1.5 pt-1">
         <ParamRow label="Bars">
           <input
             type="number"
@@ -113,7 +150,9 @@ export function SoundwaveVisualizerBody({ nodeId, data, updateNodeData }: BodyRe
             onChange={(e) => updateNodeData({ barCount: e.target.value === '' ? 48 : Number(e.target.value) })}
             className="h-6 w-16 rounded-control border border-border-subtle bg-surface-input px-1.5 text-[11px] text-text-primary outline-none focus:border-border-focus"
           />
+          <span className="text-[9px] text-text-muted">{barCount} segments</span>
         </ParamRow>
+
         <ParamRow label="Color">
           <input
             type="color"
@@ -122,8 +161,9 @@ export function SoundwaveVisualizerBody({ nodeId, data, updateNodeData }: BodyRe
             onChange={(e) => updateNodeData({ colorAccent: e.target.value })}
             className="h-6 w-8 cursor-pointer rounded-control border border-border-subtle bg-surface-input p-0.5"
           />
-          <span className="text-[10px] tabular-nums text-text-muted">{colorAccent}</span>
+          <span className="text-[10px] font-mono text-text-muted">{colorAccent}</span>
         </ParamRow>
+
         <ParamRow label="Sens">
           <input
             type="range"
@@ -133,45 +173,40 @@ export function SoundwaveVisualizerBody({ nodeId, data, updateNodeData }: BodyRe
             value={sensitivity}
             aria-label="Sensitivity"
             onChange={(e) => updateNodeData({ sensitivity: Number(e.target.value) })}
-            className="h-6 flex-1"
-            style={{ accentColor: 'var(--accent)' }}
+            className="h-6 flex-1 cursor-pointer"
+            style={{ accentColor: colorAccent }}
           />
-          <span className="w-8 text-right text-[10px] tabular-nums text-text-muted">{sensitivity.toFixed(2)}×</span>
+          <span className="w-8 text-right text-[10px] tabular-nums font-mono text-text-muted">
+            {sensitivity.toFixed(2)}×
+          </span>
         </ParamRow>
       </div>
 
-      {/* Play/pause + code-block readout. The live canvas above already shows
-          the visualizer; this button toggles playback so the user HEARS the
-          audio while watching the preview react. */}
-      {audioPath && (
-        <button
-          type="button"
-          onClick={live.toggle}
-          aria-label={live.playing ? 'Pause preview' : 'Play preview'}
-          className="inline-flex h-7 items-center justify-center gap-1.5 rounded-control border border-border-subtle bg-surface-panel px-2 text-[12px] text-text-secondary hover:bg-surface-hover"
-        >
-          {live.playing ? <Pause size={13} aria-hidden="true" /> : <Play size={13} aria-hidden="true" />}
-          {live.playing ? 'Pause' : 'Play preview'}
-        </button>
-      )}
-
-      {/* Code-block readout — effective config + upstream audio metadata. */}
-      <div className="void-codeblock">
-        <dl className="grid grid-cols-[auto_1fr] gap-x-2 gap-y-0.5">
+      {/* Code-block readout */}
+      <div className="void-codeblock mt-0.5">
+        <dl className="grid grid-cols-[auto_1fr] gap-x-2 gap-y-0.5 text-[10px]">
           <dt className="void-codeblock__muted">mode</dt>
-          <dd>{visualizerType}</dd>
+          <dd className="font-mono">{visualizerType}</dd>
           <dt className="void-codeblock__muted">bars</dt>
-          <dd>{barCount}</dd>
+          <dd className="font-mono">{barCount}</dd>
           <dt className="void-codeblock__muted">accent</dt>
-          <dd>{colorAccent}</dd>
+          <dd className="font-mono">{colorAccent}</dd>
           <dt className="void-codeblock__muted">audio</dt>
           <dd>
-            {upstream ? (
+            {upstream && upstream.durationMs > 0 ? (
               `${(upstream.durationMs / 1000).toFixed(1)}s · ${(upstream.sampleRate / 1000).toFixed(1)}kHz`
+            ) : audioPath ? (
+              'connected'
             ) : (
               <span className="void-codeblock__muted">not connected</span>
             )}
           </dd>
+          {backgroundPath && (
+            <>
+              <dt className="void-codeblock__muted">bg</dt>
+              <dd className="truncate">{upstreamBg?.mode === 'video' ? 'video loop' : 'cover image'}</dd>
+            </>
+          )}
         </dl>
       </div>
     </div>
@@ -186,7 +221,7 @@ interface ParamRowProps {
 function ParamRow({ label, children }: ParamRowProps) {
   return (
     <div className="flex items-center gap-1.5">
-      <span className="flex w-10 shrink-0 items-center gap-0.5 text-[10px] text-text-muted">
+      <span className="flex w-11 shrink-0 items-center gap-0.5 text-[10px] text-text-muted">
         <Sliders size={10} aria-hidden="true" />
         {label}
       </span>

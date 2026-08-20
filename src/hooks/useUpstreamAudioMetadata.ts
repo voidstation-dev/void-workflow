@@ -50,9 +50,7 @@ export function useUpstreamAudioMetadata(nodeId?: string, targetPort = 'audio'):
     const durationMs = Number(data.durationMs ?? 0);
     const sampleRate = Number(data.sampleRate ?? 0);
     const audioPath = String(data.audioPath ?? '').trim();
-    // Require a non-zero duration so a freshly-placed Audio & Cover node (no
-    // file picked yet) reads as "not connected" rather than showing 0.0s.
-    if (durationMs <= 0 && sampleRate <= 0) return null;
+    if (!audioPath && durationMs <= 0 && sampleRate <= 0) return null;
     return {
       durationMs,
       sampleRate,
@@ -62,6 +60,45 @@ export function useUpstreamAudioMetadata(nodeId?: string, targetPort = 'audio'):
     };
   }, [nodes, edges, nodeId, targetPort]);
 }
+
+export interface UpstreamBackground {
+  mode: 'image' | 'video';
+  backgroundPath: string;
+}
+
+/**
+ * Find the background media path connected upstream to `nodeId` (via 'background' handle).
+ * If mode is 'image', resolves the cover image from upstream Audio & Cover.
+ */
+export function useUpstreamBackground(nodeId?: string): UpstreamBackground | null {
+  const nodes = useWorkflowStore((s) => s.nodes);
+  const edges = useWorkflowStore((s) => s.edges);
+
+  return useMemo(() => {
+    if (!nodeId) return null;
+    const bgEdge = edges.find((e) => e.target === nodeId && e.targetHandle === 'background');
+    if (!bgEdge) return null;
+    const bgNode = nodes.find((n) => n.id === bgEdge.source);
+    if (!bgNode?.data) return null;
+    const bgData = bgNode.data as Record<string, unknown>;
+    const mode = (bgData.mode === 'video' ? 'video' : 'image') as 'image' | 'video';
+    let backgroundPath = mode === 'video' ? String(bgData.videoPath ?? '').trim() : '';
+
+    if (mode === 'image') {
+      const coverEdge = edges.find((e) => e.target === bgNode.id && e.targetHandle === 'cover');
+      if (coverEdge) {
+        const coverSource = nodes.find((n) => n.id === coverEdge.source);
+        if (coverSource?.data) {
+          backgroundPath = String((coverSource.data as Record<string, unknown>).coverPath ?? '').trim();
+        }
+      }
+    }
+
+    if (!backgroundPath) return null;
+    return { mode, backgroundPath };
+  }, [nodes, edges, nodeId]);
+}
+
 
 /**
  * Whether a video is bound to `targetPort` on `nodeId` (an upstream node is
@@ -96,9 +133,13 @@ export interface UpstreamVisualizerConfig {
   barCount: number;
   colorAccent: string;
   sensitivity: number;
+  position: 'bottom' | 'center' | 'top';
+  opacity: number;
   /** Audio file path from the furthest upstream `audioCover` node. Empty when
    *  the audio source has no selected path (the live canvas can't play). */
   audioPath: string;
+  /** Background file path from upstream `backgroundMedia` node if connected. */
+  backgroundPath: string;
 }
 
 export function useUpstreamVisualizerConfig(nodeId?: string): UpstreamVisualizerConfig | null {
@@ -125,12 +166,42 @@ export function useUpstreamVisualizerConfig(nodeId?: string): UpstreamVisualizer
     const audioPath = audioCoverNode
       ? String((audioCoverNode.data as Record<string, unknown> | undefined)?.audioPath ?? '').trim()
       : '';
+
+    // Step 3: visualizer's `background` edge → backgroundMedia node.
+    let backgroundPath = '';
+    const bgEdge = edges.find(
+      (e) => e.target === visualizerNode.id && e.targetHandle === 'background',
+    );
+    if (bgEdge) {
+      const bgNode = nodes.find((n) => n.id === bgEdge.source);
+      if (bgNode?.data) {
+        const bgData = bgNode.data as Record<string, unknown>;
+        if (bgData.mode === 'video') {
+          backgroundPath = String(bgData.videoPath ?? '').trim();
+        } else {
+          const coverEdge = edges.find((e) => e.target === bgNode.id && e.targetHandle === 'cover');
+          if (coverEdge) {
+            const coverSource = nodes.find((n) => n.id === coverEdge.source);
+            if (coverSource?.data) {
+              backgroundPath = String((coverSource.data as Record<string, unknown>).coverPath ?? '').trim();
+            }
+          }
+        }
+      }
+    }
+
+    const position = (String(vd.position ?? 'bottom') as 'bottom' | 'center' | 'top') || 'bottom';
+    const opacity = typeof vd.opacity === 'number' ? vd.opacity : 0.85;
+
     return {
       visualizerType,
       barCount: Number(vd.barCount ?? 48),
       colorAccent: String(vd.colorAccent ?? '#7669DE'),
       sensitivity: Number(vd.sensitivity ?? 1),
+      position,
+      opacity,
       audioPath,
+      backgroundPath,
     };
   }, [nodes, edges, nodeId]);
 }

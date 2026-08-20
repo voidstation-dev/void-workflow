@@ -308,11 +308,20 @@ fn build_args(
         )?;
     }
 
+    let preset = data
+        .get("preset")
+        .and_then(Value::as_str)
+        .unwrap_or("ultrafast");
+
     args.extend([
         "-c:v".into(),
         "libx264".into(),
         "-preset".into(),
-        "medium".into(),
+        preset.into(),
+        "-tune".into(),
+        "fastdecode".into(),
+        "-threads".into(),
+        "0".into(),
         "-pix_fmt".into(),
         "yuv420p".into(),
         "-c:a".into(),

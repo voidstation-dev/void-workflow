@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
+import { getCurrentWindow } from '@tauri-apps/api/window';
+import { isTauri } from '@tauri-apps/api/core';
 import { LoaderCircle } from 'lucide-react';
 import { useWorkflowStore } from '@/store/workflowStore';
 import { useWorkflowController } from '@/hooks/useWorkflowController';
@@ -61,7 +63,11 @@ export function UnsavedGuardDialog() {
   const approveClose = () => {
     close(null);
     const approve = (window as any).__voidApproveClose as (() => void) | undefined;
-    approve?.();
+    if (approve) {
+      approve();
+    } else if (isTauri()) {
+      void getCurrentWindow().close();
+    }
   };
 
   return (

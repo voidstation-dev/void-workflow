@@ -3,6 +3,10 @@ import { useWorkflowController } from '@/hooks/useWorkflowController';
 import { useWorkspaceShortcuts } from '@/hooks/useWorkspaceShortcuts';
 import { WorkspaceShell } from '@/components/shell/WorkspaceShell';
 import { NodeDetailPanel } from '@/components/canvas/NodeDetailPanel';
+import { KeyboardHelpDialog } from '@/components/shell/KeyboardHelpDialog';
+import { UnsavedGuardDialog } from '@/components/shell/UnsavedGuardDialog';
+import { ToastRegion } from '@/components/shell/ToastRegion';
+import { StatusAnnouncer } from '@/components/shell/StatusAnnouncer';
 import { useWorkflowStore } from '@/store/workflowStore';
 
 /**
@@ -11,10 +15,9 @@ import { useWorkflowStore } from '@/store/workflowStore';
  * 5-zone grid. When a modal dialog is open, the shell behind it is `inert`
  * (modern focus-trap mechanism, spec §10.3).
  *
- * Phase E: the NodeDetailPanel is mounted here as a sibling of the shell. It's
- * a Radix Dialog portal (controlled by the transient `detailNodeId` store
- * field), so it overlays the whole app without being a child of any zone —
- * the canvas stays visible behind the Sheet for context (spec §26).
+ * All Tier-3 modal dialogs and overlays are mounted as siblings outside the
+ * `inert` container so that focus, clicks, and keyboard navigation on dialogs
+ * work correctly while the underlying background shell remains inaccessible.
  */
 function App() {
   const controller = useWorkflowController();
@@ -27,10 +30,18 @@ function App() {
   const dialog = useWorkflowStore((s) => s.dialog);
 
   return (
-    <div inert={dialog !== null ? true : undefined}>
-      <WorkspaceShell controller={controller} />
-      <NodeDetailPanel />
-    </div>
+    <>
+      <div inert={dialog !== null ? true : undefined}>
+        <WorkspaceShell controller={controller} />
+        <NodeDetailPanel />
+      </div>
+
+      {/* Overlays and Modals mounted outside inert wrapper */}
+      <ToastRegion />
+      <StatusAnnouncer />
+      <KeyboardHelpDialog />
+      <UnsavedGuardDialog />
+    </>
   );
 }
 

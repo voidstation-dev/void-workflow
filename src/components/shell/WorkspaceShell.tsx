@@ -7,10 +7,6 @@ import { NodeLibrary } from './NodeLibrary';
 import { CanvasContainer } from './CanvasContainer';
 import { Inspector } from './Inspector';
 import { BottomDock } from './BottomDock';
-import { ToastRegion } from './ToastRegion';
-import { StatusAnnouncer } from './StatusAnnouncer';
-import { KeyboardHelpDialog } from './KeyboardHelpDialog';
-import { UnsavedGuardDialog } from './UnsavedGuardDialog';
 import type { WorkflowController } from '@/hooks/useWorkflowController';
 import type { ActiveScreen } from '@/store/workflowStore';
 
@@ -144,12 +140,6 @@ export function WorkspaceShell({ controller }: { controller: WorkflowController 
       {/* Row 4 — dock spans all columns. Stays in all screen modes (spec §3).
           BottomDock renders its own collapsed summary bar when collapsed. */}
       <div style={{ gridColumn: '1 / -1' }}><BottomDock controller={controller} /></div>
-
-      {/* Overlays (not part of the grid flow) */}
-      <ToastRegion />
-      <StatusAnnouncer />
-      <KeyboardHelpDialog />
-      <UnsavedGuardDialog />
       </div>
     </div>
   );
